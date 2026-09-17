@@ -51,6 +51,13 @@ public class AgentRegistry {
     }
 
     public AgentSpec create(AgentSpec spec) {
+        // 校验 dingtalk：enabled=true 时三个字段必填；任一缺失提前抛错，避免创建后 channel 启动失败
+        DingTalkBotConfig bot = spec.getDingtalkRaw();
+        if (bot != null && bot.isEnabled() && !bot.isComplete()) {
+            throw new IllegalArgumentException(
+                    "dingtalk 配置不完整：appKey / appSecret / robotCode 必填");
+        }
+
         HarnessAgent agent = buildAgent(spec);
         AgentEntry entry = new AgentEntry(spec, modelFactory.getOrBuild(spec.getModelName()), agent);
         AgentEntry existing = map.putIfAbsent(spec.getId(), entry);
@@ -74,6 +81,14 @@ public class AgentRegistry {
         AgentEntry old = map.get(id);
         if (old == null) {
             throw new NoSuchElementException("agent '" + id + "' not found");
+        }
+
+        // 校验 dingtalk：PUT /api/agents/{id} 也支持带 dingtalk 字段；同时通过 PUT /dingtalk 子接口
+        // 单字段启用时，三个字段必须齐
+        DingTalkBotConfig newBot = spec.getDingtalkRaw();
+        if (newBot != null && newBot.isEnabled() && !newBot.isComplete()) {
+            throw new IllegalArgumentException(
+                    "dingtalk 配置不完整：appKey / appSecret / robotCode 必填");
         }
 
         HarnessAgent newAgent = buildAgent(spec);

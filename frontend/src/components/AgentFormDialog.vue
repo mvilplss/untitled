@@ -108,6 +108,21 @@ async function handleSubmit() {
       modelName: form.value.modelName.trim(),
       skills: form.value.skills && form.value.skills.length > 0 ? [...form.value.skills] : undefined,
     }
+    // 新建模式：把机器人配置一起带进 POST；编辑模式主表单不带 dingtalk（机器人区独立保存）
+    if (!isEdit.value && bot.value.enabled) {
+      const secret = botSecretMasked.value ? '' : (bot.value.appSecret?.trim() || '')
+      if (!bot.value.appKey?.trim() || !secret || !bot.value.robotCode?.trim()) {
+        ElMessage.error('启用机器人需填写 AppKey / AppSecret / RobotCode')
+        submitting.value = false
+        return
+      }
+      payload.dingtalk = {
+        enabled: true,
+        appKey: bot.value.appKey.trim(),
+        appSecret: secret,
+        robotCode: bot.value.robotCode.trim(),
+      }
+    }
     emit('submit', payload, props.mode)
     ElMessage.success(
       isEdit.value ? `数字人 '${payload.id}' 已更新` : `数字人 '${payload.id}' 已创建`,
@@ -289,19 +304,23 @@ function formatBytes(bytes: number): string {
             </el-checkbox-group>
           </section>
 
-          <section v-if="isEdit" class="dialog__section">
+          <section class="dialog__section">
             <header class="dialog__section-head">
               <span class="dialog__section-title mono">// 钉钉机器人</span>
-              <span class="dialog__section-meta mono">
+              <span v-if="isEdit" class="dialog__section-meta mono">
                 <span v-if="botLoading">加载中…</span>
                 <span v-else-if="bot.enabled && botSecretMasked" class="dialog__hint-ok">● 运行中</span>
                 <span v-else-if="bot.enabled" class="dialog__hint-warn">● 配置已保存（待启动）</span>
                 <span v-else class="dialog__hint-mute">○ 未启用</span>
               </span>
+              <span v-else class="dialog__section-meta mono dialog__hint-mute">
+                {{ bot.enabled ? '● 启用（随创建一并启动）' : '○ 不启用' }}
+              </span>
             </header>
             <div class="dialog__hint mono">
               为该数字人绑定专属钉钉机器人（1:1 绑定）。
               钉钉用户向机器人发送消息时，会由该数字人回复；变更保存后立即生效。
+              <span v-if="!isEdit">新建时如启用，机器人将与 Agent 同步创建并启动。</span>
             </div>
 
             <div class="bot-grid">
@@ -314,7 +333,7 @@ function formatBytes(bytes: number): string {
                 <label class="field__label mono">AppKey</label>
                 <el-input
                   v-model="bot.appKey"
-                  placeholder="钉钉开放平台 → 应用凭证"
+                  placeholder="钉钉开放平台 → Client ID（原 AppKey）"
                   :disabled="!bot.enabled"
                   maxlength="128"
                 />
@@ -325,7 +344,7 @@ function formatBytes(bytes: number): string {
                 <el-input
                   v-model="bot.appSecret"
                   :type="showBotSecret ? 'text' : 'password'"
-                  :placeholder="botSecretMasked ? '已保存 · 输入新值以替换' : '钉钉开放平台 → 应用凭证'"
+                  :placeholder="botSecretMasked ? '已保存 · 输入新值以替换' : (isEdit ? '留空则沿用旧值' : '钉钉开放平台 → Client Secret')"
                   :disabled="!bot.enabled"
                   maxlength="256"
                 >
@@ -339,7 +358,7 @@ function formatBytes(bytes: number): string {
                     </button>
                   </template>
                 </el-input>
-                <div v-if="botSecretMasked" class="field__hint mono">
+                <div v-if="isEdit && botSecretMasked" class="field__hint mono">
                   已保存当前密钥；如需修改请直接输入新值，否则提交时沿用旧值
                 </div>
               </div>
@@ -348,14 +367,14 @@ function formatBytes(bytes: number): string {
                 <label class="field__label mono">RobotCode</label>
                 <el-input
                   v-model="bot.robotCode"
-                  placeholder="钉钉开放平台 → 机器人 → RobotCode"
+                  placeholder="钉钉开放平台 → 机器人与消息接收 → RobotCode"
                   :disabled="!bot.enabled"
                   maxlength="128"
                 />
               </div>
             </div>
 
-            <footer class="bot-foot">
+            <footer v-if="isEdit" class="bot-foot">
               <button
                 v-if="bot.enabled"
                 class="btn-ghost mono"
