@@ -1,0 +1,8 @@
+node_modules/
+resources/app/
+resources/backend.jar
+resources/icon/.DS_Store
+out/
+dist/
+*.log
+.DS_Store

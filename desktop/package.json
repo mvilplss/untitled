@@ -1,0 +1,16 @@
+{
+  "name": "untitled-agent-desktop",
+  "version": "1.0.0",
+  "description": "数字人平台桌面客户端 - Electron 壳 + Spring Boot sidecar + 复用现有 Vue 3 前端",
+  "private": true,
+  "main": "electron/main.cjs",
+  "scripts": {
+    "prepare:frontend": "node scripts/prepare-frontend.cjs",
+    "prepare:backend": "node scripts/prepare-backend.cjs",
+    "start": "npm run prepare:frontend && npm run prepare:backend && electron .",
+    "dev": "node scripts/dev.cjs"
+  },
+  "devDependencies": {
+    "electron": "^33.0.0"
+  }
+}

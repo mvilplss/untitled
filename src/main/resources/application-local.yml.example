@@ -1,0 +1,4 @@
+agent:
+  openai:
+    # 请把下方替换为你的真实 API Key（提交仓库时本文件不要带真实值）
+    api-key: sk-cp-REPLACE_ME

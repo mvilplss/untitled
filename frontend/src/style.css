@@ -1,0 +1,293 @@
+/* =============================================================
+   untitled-agent · console — design tokens
+   arctic frost theme: crisp white canvas + charcoal text +
+   steel blue signal + ice blue elevation. monospace carries density.
+   ============================================================= */
+
+:root {
+  /* ---------- color (arctic frost) ---------- */
+  --bg-base:     #fafafa;   /* crisp white — primary canvas */
+  --bg-surface:  #ffffff;   /* pure white — sidebar / card */
+  --bg-elevated: #d4e4f7;   /* ice blue — hover / active lift */
+  --border:      #e5e7eb;   /* hairline rule */
+  --border-soft: #f0f2f5;   /* dashed rule */
+  --text:        #36454f;   /* charcoal — primary text */
+  --text-mute:   #708090;   /* slate gray — secondary text */
+  --text-faint:  #9aa3ad;   /* placeholder / lowest contrast */
+
+  /* signal colors — used sparingly, only for active states */
+  --signal:      #4a6fa5;   /* steel blue — active stream / focus */
+  --signal-2:    #7b9acc;   /* derived lighter blue — model tag / link */
+  --signal-hover:#3D5F92;   /* steel blue -12% — primary button hover */
+
+  /* semantic status colors — kept unchanged */
+  --ok:          #5FB85F;
+  --warn:        #D4A437;
+  --err:         #D85A4A;
+
+  /* ---------- typography ---------- */
+  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'PingFang SC',
+               'Hiragino Sans GB', 'Microsoft YaHei', Roboto, sans-serif;
+  --font-mono: 'JetBrains Mono', 'SF Mono', ui-monospace, SFMono-Regular,
+               Menlo, Consolas, monospace;
+
+  --fs-11: 11px;
+  --fs-12: 12px;
+  --fs-13: 13px;
+  --fs-14: 14px;
+  --fs-15: 15px;
+  --fs-18: 18px;
+  --fs-24: 24px;
+  --fs-40: 40px;
+
+  --lh-tight: 1.25;
+  --lh-snug:  1.4;
+  --lh-base:  1.55;
+  --lh-loose: 1.7;
+
+  /* ---------- spacing ---------- */
+  --s-1:  4px;
+  --s-2:  8px;
+  --s-3:  12px;
+  --s-4:  16px;
+  --s-5:  20px;
+  --s-6:  28px;
+  --s-7:  40px;
+  --s-8:  56px;
+
+  /* ---------- shape ---------- */
+  --radius: 0px;
+
+  /* ---------- z ---------- */
+  --z-dropdown: 50;
+  --z-overlay:  100;
+  --z-toast:    200;
+
+  /* legacy aliases — keep so scoped styles referencing old vars still resolve */
+  --ink:        var(--text);
+  --ink-soft:   var(--text);
+  --ink-mute:   var(--text-mute);
+  --ink-faint:  var(--text-faint);
+  --rule:       var(--border);
+  --rule-soft:  var(--border-soft);
+  --paper:      var(--bg-base);
+  --paper-pure: var(--bg-surface);
+}
+
+/* ============== reset ============== */
+*,
+*::before,
+*::after { box-sizing: border-box; }
+
+html, body, #app {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+html { -webkit-text-size-adjust: 100%; }
+
+body {
+  font-family: var(--font-sans);
+  font-size: var(--fs-13);
+  line-height: var(--lh-base);
+  color: var(--text);
+  background: var(--bg-base);
+  font-feature-settings: 'tnum' 0, 'kern' 1;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+button { font-family: inherit; }
+
+a {
+  color: var(--signal-2);
+  text-decoration: none;
+}
+a:hover { text-decoration: underline; text-underline-offset: 2px; }
+
+::selection { background: var(--signal); color: #ffffff; }
+
+/* ============== utility: monospace ============== */
+.mono {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum' 1;
+  letter-spacing: 0;
+}
+
+.num {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum' 1;
+}
+
+/* hairline rule — replaces borders/shadows throughout the app */
+.rule-top    { border-top:    1px solid var(--border); }
+.rule-bottom { border-bottom: 1px solid var(--border); }
+.rule-left   { border-left:   1px solid var(--border); }
+.rule-right  { border-right:  1px solid var(--border); }
+
+/* ============== focus ============== */
+:focus-visible {
+  outline: 1px solid var(--signal);
+  outline-offset: 1px;
+}
+
+/* ============== reduced motion ============== */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    transition-duration: 0.001ms !important;
+  }
+}
+
+/* ============== streaming cursor (single orchestrated motion) ============== */
+@keyframes uac-blink {
+  0%, 50%   { opacity: 1; }
+  50.01%, 100% { opacity: 0; }
+}
+.uac-cursor {
+  display: inline-block;
+  color: var(--signal);
+  font-family: var(--font-mono);
+  font-weight: 500;
+  animation: uac-blink 1s steps(1) infinite;
+  margin-left: 1px;
+}
+
+/* first-message fade-in (single entrance) */
+@keyframes uac-fade-in {
+  from { opacity: 0; transform: translateY(2px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.uac-fade-in { animation: uac-fade-in 180ms ease-out both; }
+
+/* ============== Element Plus overrides ==============
+   EP is used as functional primitives (form/select/checkbox/radio/input).
+   Strip decoration: hairline borders, no rounded corners, no shadows.
+*/
+
+:root {
+  --el-color-primary: var(--signal);
+  --el-color-primary-light-3: var(--signal);
+  --el-color-primary-light-5: var(--signal);
+  --el-color-primary-light-7: var(--signal);
+  --el-color-primary-light-8: var(--signal);
+  --el-color-primary-light-9: var(--signal);
+  --el-color-primary-dark-2: var(--signal);
+  --el-text-color-primary: var(--text);
+  --el-text-color-regular: var(--text);
+  --el-text-color-secondary: var(--text-mute);
+  --el-text-color-placeholder: var(--text-faint);
+  --el-border-color: var(--border);
+  --el-border-color-light: var(--border-soft);
+  --el-border-color-lighter: var(--border-soft);
+  --el-border-color-extra-light: var(--border-soft);
+  --el-border-radius-base: 0;
+  --el-border-radius-small: 0;
+  --el-border-radius-round: 0;
+  --el-fill-color-blank: var(--bg-surface);
+  --el-fill-color-light: var(--bg-base);
+  --el-mask-color: rgba(54, 69, 79, 0.4);
+}
+
+/* inputs — hairline only, no shadow box */
+.el-input__wrapper,
+.el-textarea__inner,
+.el-select__wrapper {
+  box-shadow: 0 0 0 1px var(--border) inset !important;
+  border-radius: 0 !important;
+  background: var(--bg-surface) !important;
+  transition: box-shadow 0.12s ease;
+}
+.el-input__wrapper:hover,
+.el-select__wrapper:hover {
+  box-shadow: 0 0 0 1px var(--text-mute) inset !important;
+}
+.el-input__wrapper.is-focus,
+.el-select__wrapper.is-focused {
+  box-shadow: 0 0 0 1px var(--signal) inset !important;
+}
+.el-textarea__inner {
+  box-shadow: 0 0 0 1px var(--border) inset !important;
+}
+.el-textarea__inner:focus {
+  box-shadow: 0 0 0 1px var(--signal) inset !important;
+  outline: none;
+}
+
+.el-input__inner,
+.el-textarea__inner {
+  font-family: var(--font-sans) !important;
+  color: var(--text) !important;
+}
+.el-input__inner::placeholder,
+.el-textarea__inner::placeholder {
+  color: var(--text-faint) !important;
+  font-family: var(--font-mono) !important;
+  font-size: var(--fs-12) !important;
+}
+
+/* checkbox */
+.el-checkbox {
+  --el-checkbox-text-color: var(--text);
+  --el-checkbox-input-border-color: var(--text-mute);
+  --el-checkbox-checked-bg-color: var(--signal);
+  --el-checkbox-checked-input-border-color: var(--signal);
+  --el-checkbox-checked-text-color: #ffffff;
+}
+
+/* radio button group */
+.el-radio-button__inner {
+  border: 1px solid var(--border) !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  background: var(--bg-surface) !important;
+  color: var(--text-mute) !important;
+  font-family: var(--font-mono) !important;
+  font-size: var(--fs-12) !important;
+}
+.el-radio-button__original-radio:checked + .el-radio-button__inner {
+  background: var(--signal) !important;
+  border-color: var(--signal) !important;
+  color: #ffffff !important;
+  box-shadow: none !important;
+}
+
+/* message toast */
+.el-message {
+  border-radius: 0 !important;
+  border: 1px solid var(--border) !important;
+  background: var(--bg-elevated) !important;
+  color: var(--text) !important;
+  font-family: var(--font-mono) !important;
+  font-size: var(--fs-12) !important;
+  min-width: 280px !important;
+  padding: 8px 14px !important;
+}
+.el-message .el-message__content { color: var(--text) !important; }
+.el-message--success { border-left: 2px solid var(--ok) !important; }
+.el-message--warning { border-left: 2px solid var(--warn) !important; }
+.el-message--info    { border-left: 2px solid var(--signal-2) !important; }
+.el-message--error   { border-left: 2px solid var(--err) !important; }
+
+/* loading mask */
+.el-loading-mask {
+  background-color: rgba(54, 69, 79, 0.3) !important;
+}
+.el-loading-spinner .circular {
+  stroke: var(--signal) !important;
+}
+.el-loading-text {
+  color: var(--text-mute) !important;
+  font-family: var(--font-mono) !important;
+  font-size: var(--fs-11) !important;
+}
+
+/* overlay mask */
+.el-overlay {
+  background-color: var(--el-mask-color) !important;
+}

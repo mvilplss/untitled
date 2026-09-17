@@ -1,0 +1,36 @@
+spring:
+  application:
+    name: untitled-agent
+  profiles:
+    active: local
+  servlet:
+    multipart:
+      max-file-size: 50MB
+      max-request-size: 200MB
+
+server:
+  port: 8081
+
+agent:
+  openai:
+    base-url: https://api.minimaxi.com/v1
+    api-key: ${OPENAI_API_KEY:}
+    workspace-root: .agentscope/workspace
+    connect-timeout-seconds: 60
+    read-timeout-seconds: 120
+    trigger-messages: 30
+    keep-messages: 10
+  persistence:
+    path: .agentscope/agents.json
+
+logging:
+  level:
+    org.example: INFO
+    io.agentscope: INFO
+
+springdoc:
+  swagger-ui:
+    tags-sorter: alpha
+    operations-sorter: alpha
+    display-request-duration: true
+    default-models-expand-depth: 2
