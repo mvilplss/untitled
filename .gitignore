@@ -47,3 +47,4 @@ src/main/resources/application-local.yml
 .agentscope
 
 .mvn
+.idea
