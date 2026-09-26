@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 import { ElMessage, type FormInstance, type FormRules } from 'element-plus'
-import type { AgentMode, AgentSpec, BailianRagConfig, DingTalkBotConfig } from '@/types/api'
+import type { AgentMode, AgentSpec, BailianRagConfig, DingTalkBotConfig, IsolationScope } from '@/types/api'
 import { useSkillsStore } from '@/stores/skills'
 import SkillMultiPicker from '@/components/SkillMultiPicker.vue'
 import DingTalkSubForm from '@/components/DingTalkSubForm.vue'
@@ -37,6 +37,7 @@ const form = ref<AgentSpec>({
   sysPrompt: '你是一个有帮助的助手。',
   modelName: 'minimax-m3',
   skills: [],
+  isolationScope: 'USER',
 })
 const submitting = ref(false)
 
@@ -70,6 +71,7 @@ function emptyForm(): AgentSpec {
     sysPrompt: '你是一个有帮助的助手。',
     modelName: 'minimax-m3',
     skills: [],
+    isolationScope: 'USER',
   }
 }
 
@@ -83,9 +85,20 @@ function fillFromInitial(spec?: AgentSpec | null) {
       sysPrompt: spec.sysPrompt,
       modelName: spec.modelName,
       skills: spec.skills ? [...spec.skills] : [],
+      isolationScope: spec.isolationScope ?? 'USER',
     }
   }
   formRef.value?.clearValidate()
+}
+
+/** isolationScope 显示文案 */
+const SCOPE_LABELS: Record<IsolationScope, string> = {
+  USER: 'USER · 每用户独立',
+  AGENT: 'AGENT · 同 Agent 共享',
+  GLOBAL: 'GLOBAL · 全局共享',
+}
+function scopeLabel(s: IsolationScope | undefined): string {
+  return s ? SCOPE_LABELS[s] : 'USER · 每用户独立'
 }
 
 watch(
@@ -120,6 +133,7 @@ async function handleSubmit() {
       sysPrompt: form.value.sysPrompt.trim(),
       modelName: form.value.modelName.trim(),
       skills: form.value.skills && form.value.skills.length > 0 ? [...form.value.skills] : undefined,
+      isolationScope: form.value.isolationScope,
     }
     // 新建模式：把机器人配置一起带进 POST；编辑模式主表单不带 dingtalk（机器人区独立保存）
     if (!isEdit.value && dingTalkRef.value) {
@@ -223,6 +237,33 @@ async function handleSubmit() {
             <div class="field field--full">
               <label class="field__label mono">模型 <span class="field__required">*</span></label>
               <el-input v-model="form.modelName" placeholder="OpenAI 兼容接口的模型标识" />
+            </div>
+
+            <div class="field field--full">
+              <label class="field__label mono">
+                沙箱隔离
+                <span v-if="isEdit" class="field__readonly mono">· 创建后不可修改</span>
+              </label>
+
+              <!-- 创建模式：可编辑下拉 -->
+              <el-select
+                v-if="!isEdit"
+                v-model="form.isolationScope"
+                placeholder="选择隔离 scope"
+              >
+                <el-option label="USER · 每用户独立（推荐）" value="USER" />
+                <el-option label="AGENT · 同 Agent 所有用户共享" value="AGENT" />
+                <el-option label="GLOBAL · 全局共享" value="GLOBAL" />
+              </el-select>
+
+              <!-- 编辑模式：只读展示 -->
+              <div v-else class="field__readonly-value mono">
+                {{ scopeLabel(form.isolationScope) }}
+              </div>
+
+              <div class="field__hint mono">
+                USER 是默认且最安全的选项；AGENT / GLOBAL 适合单租户团队协作场景
+              </div>
             </div>
           </div>
 
@@ -356,6 +397,20 @@ async function handleSubmit() {
   user-select: all;
 }
 .field__hint-sep { color: var(--line); }
+.field__readonly {
+  color: var(--txt3);
+  font-size: 11px;
+  margin-left: 8px;
+  font-weight: normal;
+}
+.field__readonly-value {
+  padding: 6px 10px;
+  background: var(--bg);
+  border: 1px dashed var(--line);
+  border-radius: var(--radius-sm);
+  color: var(--txt2);
+  font-size: 13px;
+}
 
 .dialog__section {
   border-top: 1px solid var(--line);

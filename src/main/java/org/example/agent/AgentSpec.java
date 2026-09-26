@@ -2,6 +2,7 @@ package org.example.agent;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import io.agentscope.harness.agent.IsolationScope;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Pattern;
@@ -57,6 +58,12 @@ public class AgentSpec {
     @Schema(description = "可选：阿里云百炼知识库 RAG 配置。启用后会把 retrieve_knowledge 注入 Toolkit；变更或禁用后立即重建 HarnessAgent。accessKeyId/Secret 可省略，走 application.yml 全局默认。")
     private BailianRagConfig bailian;
 
+    @Schema(description = "沙箱隔离 scope。USER=每用户独立容器；AGENT=同 Agent 所有用户共享；GLOBAL=全局共享。**创建后不可修改**。默认 USER。",
+            example = "USER",
+            allowableValues = {"USER", "AGENT", "GLOBAL"},
+            defaultValue = "USER")
+    private IsolationScope isolationScope = IsolationScope.USER;
+
     public AgentSpec() {}
 
     public AgentSpec(String id, String name, String sysPrompt, String modelName,
@@ -80,6 +87,7 @@ public class AgentSpec {
         this.skills = (skills == null || skills.isEmpty()) ? null : List.copyOf(skills);
         this.dingtalk = dingtalk;
         this.bailian = bailian;
+        this.isolationScope = IsolationScope.USER;
     }
 
     public String getId() { return id; }
@@ -120,4 +128,14 @@ public class AgentSpec {
     @JsonIgnore
     public BailianRagConfig getBailianRaw() { return bailian; }
     public void setBailian(BailianRagConfig bailian) { this.bailian = bailian; }
+
+    /**
+     * 获取 isolation scope。null 时 fallback USER（兼容旧 json / 旧 API 没传）。
+     */
+    public IsolationScope getIsolationScope() {
+        return isolationScope == null ? IsolationScope.USER : isolationScope;
+    }
+    public void setIsolationScope(IsolationScope isolationScope) {
+        this.isolationScope = isolationScope == null ? IsolationScope.USER : isolationScope;
+    }
 }

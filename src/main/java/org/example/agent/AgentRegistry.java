@@ -93,6 +93,11 @@ public class AgentRegistry {
         }
         // bailian 在 buildAgent 阶段按合并后配置判定是否启用，不在此处抛错
 
+        // 兼容旧 API / 旧 json 没传 isolationScope：默认 USER（getIsolationScope 内部已兜底，此处防御性 set 一下保证持久化）
+        if (spec.getIsolationScope() == null) {
+            spec.setIsolationScope(IsolationScope.USER);
+        }
+
         HarnessAgent agent = buildAgent(spec);
         AgentEntry entry = new AgentEntry(spec, modelFactory.getOrBuild(spec.getModelName()), agent);
         AgentEntry existing = map.putIfAbsent(spec.getId(), entry);
@@ -135,6 +140,18 @@ public class AgentRegistry {
         // bailian：保留策略同 dingtalk；spec 不带 bailian 字段时保留旧值
         if (spec.getBailianRaw() == null) {
             spec.setBailian(old.spec.getBailianRaw());
+        }
+
+        // isolationScope：创建后不可修改。变更直接拒绝（避免容器 key 空间错位）。
+        // body 漏传 isolationScope 时复用旧值（PUT 不带此字段的场景）。
+        IsolationScope requested = spec.getIsolationScope();
+        IsolationScope current = old.spec.getIsolationScope();
+        if (requested != null && current != null && requested != current) {
+            throw new IllegalArgumentException(
+                    "isolationScope 创建后不可修改（当前: " + current + ", 请求: " + requested + "）");
+        }
+        if (requested == null) {
+            spec.setIsolationScope(current);
         }
 
         HarnessAgent newAgent = buildAgent(spec);
@@ -424,7 +441,7 @@ public class AgentRegistry {
 
         // fsSpec 同时绑定到 agent 和 sandboxHandles，供 SandboxFileService 直接复用
         DockerFilesystemSpec fsSpec = buildSandboxFilesystemSpec();
-        builder.filesystem(fsSpec.isolationScope(IsolationScope.USER));
+        builder.filesystem(fsSpec.isolationScope(spec.getIsolationScope()));
         HarnessAgent agent = builder.build();
 
         // 缓存沙箱句柄（fsSpec + 宿主 workspaceRoot）供沙箱文件浏览控制器使用

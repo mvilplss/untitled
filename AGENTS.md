@@ -96,6 +96,24 @@ POST   /api/agents/{id}/chat/upload?userId=&sessionId=          上传聊天附�
 - **前端 UI**：`AgentFormDialog.vue` 组合 `BailianRagSubForm`；编辑模式独立「启用并启动 / 停用 RAG」按钮；新建模式随 payload 一起 POST。子表单含基础字段（AK / Secret / WorkspaceId / IndexId）+ 折叠的高级字段（Endpoint / TopK / 阈值 / rerank / rewrite / rerankModel / rerankMinScore / rerankTopN / rewriteModel）
 - **sysPrompt 提示**：UI 子表单 hint 中建议在系统提示词中加入「需要时使用 retrieve_knowledge 工具检索知识库」以提高 agentic 检索命中率
 
+## Isolation Scope（沙箱隔离维度）
+
+每个 Agent 在创建时必须指定隔离 scope，**创建后不可修改**：
+
+| Scope | 语义 | 适用场景 |
+|------|------|---------|
+| `USER`（默认） | 每用户独立容器，独立工作区 | 多租户 SaaS、私人助手（推荐） |
+| `AGENT` | 同 Agent 所有用户共享一个容器 | 单租户团队、协作沙盒 |
+| `GLOBAL` | 全局共享（跨 Agent） | 系统级 Agent、单租户单 Agent |
+
+**为什么不可修改**：scope 决定 sandbox key 空间（`sandbox/user|agent|global/<...>`）。
+变更 scope 会导致 chat 路径与文件浏览路径读到不同的容器，破坏一致性（参考 `SandboxFileService` 已跟随 `fsSpec.getIsolationScope()`）。
+
+- **持久化**：`agents.json` 新增 `isolationScope` 字段；旧 entries 缺字段 → fallback USER（`AgentSpec.getIsolationScope()` 内部 null 兜底）
+- **前端**：`AgentFormDialog.vue` 创建时必选（默认 USER）；编辑时只读展示当前值
+- **后端**：`AgentRegistry.update()` 拒绝跨 scope 修改（throw `IllegalArgumentException` → 400）；body 漏传时复用旧值
+- **运行时**：`buildAgent()` 用 `spec.getIsolationScope()` 构造 fsSpec（替代硬编码）
+
 ## ⚠️ v2 RAG API 追踪
 
 **当前状态（2.0.3）**：AgentScope Java 2.0 的 v1 RAG 接口（`Knowledge` / `KnowledgeRetrievalTools` / `RAGMode` / `GenericRAGHook` 以及 `ReActAgent.Builder.knowledge(...).ragMode(...)` / `.retrieveConfig(...)`）全部标 `@Deprecated(forRemoval = true, since = "2.0.0")`。官方迁移指南 [B.5](https://java.agentscope.io/v2/en/docs/change-log.md) 明确说「The v2 rewrite is underway. New knowledge base, document reader, and store APIs will land in subsequent minor releases」。

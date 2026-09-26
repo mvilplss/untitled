@@ -29,6 +29,9 @@ export type ToolType = 'MCP' | 'HTTP' | 'DB' | 'RPA'
 export type ToolPermission = 'read' | 'write'
 export type ToolSideEffect = 'read' | 'write' | 'irreversible'
 
+/** 沙箱隔离 scope：USER=每用户独立容器；AGENT=同 Agent 共享；GLOBAL=全局共享。创建后不可修改。 */
+export type IsolationScope = 'USER' | 'AGENT' | 'GLOBAL'
+
 export interface AgentSpec {
   id: string
   name: string
@@ -38,6 +41,8 @@ export interface AgentSpec {
   skills?: string[]
   dingtalk?: DingTalkBotConfig
   bailian?: BailianRagConfig
+  /** 沙箱隔离 scope。创建后不可修改。默认 USER。 */
+  isolationScope?: IsolationScope
   /** optional; not returned by backend today */
   dept?: string
   owner?: string
