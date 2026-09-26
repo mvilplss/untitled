@@ -79,8 +79,10 @@ function toggle() {
 <style scoped>
 .tool-call {
   margin: 0;
-  border: 1px solid var(--border);
-  background: var(--bg-surface);
+  border: 1px solid var(--line);
+  background: var(--panel);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
 }
 .tool-call--forced { border-color: var(--border); }
 

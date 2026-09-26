@@ -1,5 +1,5 @@
 import { http } from './client'
-import type { AgentSpec, DingTalkBotConfig } from '@/types/api'
+import type { AgentSpec, BailianRagConfig, DingTalkBotConfig } from '@/types/api'
 
 export const listAgents = (): Promise<AgentSpec[]> => http.get<AgentSpec[]>('/agents').then(r => r.data)
 
@@ -23,3 +23,22 @@ export const upsertDingTalkBot = (id: string, cfg: DingTalkBotConfig): Promise<D
 
 export const deleteDingTalkBot = (id: string): Promise<void> =>
   http.delete<void>(`/agents/${encodeURIComponent(id)}/dingtalk`).then(() => undefined)
+
+export const getBailianRag = (id: string): Promise<BailianRagConfig> =>
+  http.get<BailianRagConfig>(`/agents/${encodeURIComponent(id)}/bailian`).then(r => r.data)
+
+export const upsertBailianRag = (id: string, cfg: BailianRagConfig): Promise<BailianRagConfig> =>
+  http.put<BailianRagConfig>(`/agents/${encodeURIComponent(id)}/bailian`, cfg).then(r => r.data)
+
+export const deleteBailianRag = (id: string): Promise<void> =>
+  http.delete<void>(`/agents/${encodeURIComponent(id)}/bailian`).then(() => undefined)
+
+export interface DingTalkBotHealth {
+  agentId: string
+  enabled: boolean
+  status: 'DISABLED' | 'STARTING' | 'ACTIVE' | 'ERROR'
+  lastError?: string
+}
+
+export const getDingTalkBotHealth = (id: string): Promise<DingTalkBotHealth> =>
+  http.get<DingTalkBotHealth>(`/agents/${encodeURIComponent(id)}/dingtalk/health`).then(r => r.data)

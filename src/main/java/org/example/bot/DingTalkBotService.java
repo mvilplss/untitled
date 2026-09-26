@@ -22,9 +22,11 @@ public class DingTalkBotService {
     private static final Logger log = LoggerFactory.getLogger(DingTalkBotService.class);
 
     private final AgentRegistry agentRegistry;
+    private final DingTalkChannelRegistry channelRegistry;
 
-    public DingTalkBotService(AgentRegistry agentRegistry) {
+    public DingTalkBotService(AgentRegistry agentRegistry, DingTalkChannelRegistry channelRegistry) {
         this.agentRegistry = agentRegistry;
+        this.channelRegistry = channelRegistry;
     }
 
     /**
@@ -92,5 +94,20 @@ public class DingTalkBotService {
 
     private static String emptyOrKeep(String v, String fallback) {
         return (v == null || v.isBlank()) ? fallback : v;
+    }
+
+    /** 状态摘要。供前端徽章 + 排错使用。 */
+    public DingTalkBotHealth health(String agentId) {
+        // 校验 agent 存在，不存在抛 NoSuchElementException → Controller 转 404
+        agentRegistry.getSpec(agentId);
+        DingTalkChannelRegistry.HealthStatus status = channelRegistry.health(agentId);
+        String err = channelRegistry.lastError(agentId);
+        DingTalkBotConfig cfg = channelRegistry.currentConfig(agentId);
+        return new DingTalkBotHealth(
+                agentId,
+                cfg != null && cfg.isEnabled(),
+                status.name(),
+                err
+        );
     }
 }

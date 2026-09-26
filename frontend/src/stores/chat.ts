@@ -2,7 +2,8 @@ import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import * as chatApi from '@/api/chat'
 import * as sessionsApi from '@/api/sessions'
-import type { ChatHistoryMessage, ChatMessage, ChatRequest, SessionInfo, ToolCall } from '@/types/api'
+import { formatRelative } from '@/utils/format'
+import type { AttachmentRef, ChatHistoryMessage, ChatMessage, ChatRequest, SessionInfo, ToolCall, UsageStats } from '@/types/api'
 
 let _id = 0
 const newId = () => `m_${Date.now()}_${++_id}`
@@ -17,7 +18,7 @@ function generateSessionId(): string {
 function historyToMessages(history: ChatHistoryMessage[]): ChatMessage[] {
   const out: ChatMessage[] = []
   for (const h of history) {
-    if (!h.content && !h.thinking && !h.toolCalls?.length) continue
+    if (!h.content && !h.thinking && !h.toolCalls?.length && !h.attachments?.length) continue
     const role = h.role === 'USER' ? 'user' as const : 'assistant' as const
     out.push({
       id: `hist_${h.timestamp}_${out.length}`,
@@ -25,36 +26,12 @@ function historyToMessages(history: ChatHistoryMessage[]): ChatMessage[] {
       content: h.content || '',
       thinking: h.thinking || undefined,
       toolCalls: h.toolCalls,
+      usages: h.usages,
+      attachments: h.attachments,
       createdAt: h.timestamp * 1000,
     })
   }
   return out
-}
-
-/** 相对时间格式化 */
-function formatRelative(ts: number): string {
-  if (!ts) return '从未'
-  const sec = Math.floor((Date.now() / 1000 - ts))
-  if (sec < 60) return `${sec}秒前`
-  const min = Math.floor(sec / 60)
-  if (min < 60) return `${min}分钟前`
-  const hr = Math.floor(min / 60)
-  if (hr < 24) return `${hr}小时前`
-  const day = Math.floor(hr / 24)
-  if (day < 30) return `${day}天前`
-  return new Date(ts * 1000).toLocaleDateString()
-}
-
-/** 一次性清理老 localStorage key（chat:*），避免残留干扰新逻辑 */
-function migrateClearLegacyLocalStorage() {
-  try {
-    for (let i = localStorage.length - 1; i >= 0; i--) {
-      const k = localStorage.key(i)
-      if (k && k.startsWith('chat:')) localStorage.removeItem(k)
-    }
-  } catch {
-    // 忽略
-  }
 }
 
 /** 在 ChatMessage 上把指定 id 的工具调用取出（不存在则新建） */
@@ -71,9 +48,6 @@ function ensureToolCall(msg: ChatMessage, id: string, name: string): ToolCall {
 }
 
 export const useChatStore = defineStore('chat', () => {
-  // 一次性迁移：清理老 chat:* localStorage
-  migrateClearLegacyLocalStorage()
-
   // 全部为纯内存状态（不持久化）
   const agentId = ref<string>('')
   const userId = ref<string>('anonymous')
@@ -86,19 +60,22 @@ export const useChatStore = defineStore('chat', () => {
   const loading = ref(false)
   const streaming = ref(false)
 
+  /** 暂存的待发送附件（上传后等待消息发送） */
+  const stagedAttachments = ref<AttachmentRef[]>([])
+
   const sessions = ref<SessionInfo[]>([])
   const loadingSessions = ref(false)
   const loadingHistory = ref(false)
 
-  let currentES: EventSource | null = null
+  let currentController: AbortController | null = null
   let currentAssistantId: string | null = null
 
   const canSend = computed(() => !!agentId.value && !loading.value)
 
   function cancelStream() {
-    if (currentES) {
-      currentES.close()
-      currentES = null
+    if (currentController) {
+      currentController.abort()
+      currentController = null
     }
     if (currentAssistantId) {
       const msg = messages.value.find(m => m.id === currentAssistantId)
@@ -123,11 +100,15 @@ export const useChatStore = defineStore('chat', () => {
       sessionId.value = generateSessionId()
     }
 
+    const attachments = [...stagedAttachments.value]
+    stagedAttachments.value = []
+
     const req: ChatRequest = {
       agentId: agentId.value,
       sessionId: sessionId.value,
       userId: userId.value,
       message: text,
+      attachments: attachments.length ? attachments : undefined,
     }
 
     const wasFirstInSession = messages.value.length === 0
@@ -136,6 +117,7 @@ export const useChatStore = defineStore('chat', () => {
       id: newId(),
       role: 'user',
       content: text,
+      attachments: attachments.length ? attachments : undefined,
       createdAt: Date.now(),
     })
 
@@ -149,6 +131,7 @@ export const useChatStore = defineStore('chat', () => {
           content: resp.reply,
           thinking: resp.thinking,
           toolCalls: resp.toolCalls,
+          usages: resp.usages,
           createdAt: Date.now(),
         })
         if (wasFirstInSession) await loadSessions(agentId.value)
@@ -172,7 +155,7 @@ export const useChatStore = defineStore('chat', () => {
     })
     streaming.value = true
 
-    currentES = await chatApi.openChatStream(req, {
+    currentController = chatApi.openChatStream(req, {
       onMessage: (chunk) => {
         const msg = messages.value.find(m => m.id === assistantId)
         if (msg) msg.content += chunk
@@ -204,7 +187,20 @@ export const useChatStore = defineStore('chat', () => {
         if (!msg) return
         const tc = ensureToolCall(msg, id, name)
         tc.state = state as ToolCall['state']
-        tc.output = output
+        // 工具输出已通过 onToolResultDelta 增量累积，仅当尚未收到 delta 时用完整 output 兜底
+        if (!tc.output) tc.output = output
+      },
+      onToolResultDelta: ({ id, name, delta }) => {
+        const msg = messages.value.find(m => m.id === assistantId)
+        if (!msg) return
+        const tc = ensureToolCall(msg, id, name ?? '')
+        tc.output = (tc.output || '') + delta
+      },
+      onUsage: (usage: UsageStats) => {
+        const msg = messages.value.find(m => m.id === assistantId)
+        if (!msg) return
+        if (!msg.usages) msg.usages = []
+        msg.usages.push(usage)
       },
       onDone: async () => {
         const msg = messages.value.find(m => m.id === assistantId)
@@ -213,7 +209,7 @@ export const useChatStore = defineStore('chat', () => {
           msg.toolCallsStreaming = false
         }
         currentAssistantId = null
-        currentES = null
+        currentController = null
         streaming.value = false
         if (wasFirstInSession) await loadSessions(agentId.value)
       },
@@ -225,7 +221,7 @@ export const useChatStore = defineStore('chat', () => {
           m.toolCallsStreaming = false
         }
         currentAssistantId = null
-        currentES = null
+        currentController = null
         streaming.value = false
       },
     })
@@ -245,6 +241,7 @@ export const useChatStore = defineStore('chat', () => {
   async function newConversation() {
     if (!agentId.value) return
     cancelStream()
+    clearStagedAttachments()
     sessionId.value = ''
     messages.value = []
     // sessions 列表不动（后端没有"新空会话"要创建）
@@ -300,12 +297,41 @@ export const useChatStore = defineStore('chat', () => {
     }
   }
 
+  // ==================== 附件管理 ====================
+
+  /** 上传文件到沙箱 uploads 目录，返回 AttachmentRef 并暂存 */
+  async function addFiles(files: File[]): Promise<void> {
+    if (!agentId.value || !files.length) return
+    if (!sessionId.value) sessionId.value = generateSessionId()
+    try {
+      const refs = await chatApi.uploadChatAttachments(
+        agentId.value, userId.value, sessionId.value, files)
+      stagedAttachments.value.push(...refs)
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e)
+      console.error('附件上传失败:', msg)
+      throw e
+    }
+  }
+
+  /** 移除暂存附件 */
+  function removeStagedAttachment(id: string): void {
+    stagedAttachments.value = stagedAttachments.value.filter(a => a.id !== id)
+  }
+
+  /** 清空暂存附件 */
+  function clearStagedAttachments(): void {
+    stagedAttachments.value = []
+  }
+
   return {
     agentId, sessionId, userId, mode,
     messages, loading, streaming,
+    stagedAttachments,
     sessions, loadingSessions, loadingHistory,
     canSend,
     send, cancelStream,
+    addFiles, removeStagedAttachment, clearStagedAttachments,
     setAgentId, newConversation, switchSession, deleteSession,
     loadSessions, formatRelative,
   }

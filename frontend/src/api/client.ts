@@ -1,9 +1,7 @@
 import axios, { AxiosError, type AxiosResponse, type InternalAxiosRequestConfig } from 'axios'
 import { ElMessage } from 'element-plus'
+import { inElectron } from '@/utils/env'
 import type { ApiError } from '@/types/api'
-
-const inElectron =
-  typeof window !== 'undefined' && !!window.electronAPI
 
 const DEFAULT_BASE = inElectron ? 'http://localhost:8080/api' : '/api'
 
@@ -19,6 +17,15 @@ http.interceptors.request.use((config: InternalAxiosRequestConfig) => {
     const base = window.electronAPI.getBackendUrl().replace(/\/$/, '')
     const path = config.url.startsWith('/') ? config.url : `/${config.url}`
     config.url = `${base}/api${path}`
+  }
+  // dws 工作区：注入 X-User-Id 头。从 localStorage 同步取值，避免 race。
+  if (config.url && config.url.includes('/dws/')) {
+    try {
+      const uid = localStorage.getItem('untitled.dws.userId')
+      if (uid) {
+        config.headers.set('X-User-Id', uid)
+      }
+    } catch { /* ignore */ }
   }
   return config
 })

@@ -1,16 +1,70 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useAgentsStore } from '@/stores/agents'
+import Avatar from '@/components/ui/Avatar.vue'
+import StatusDot from '@/components/ui/StatusDot.vue'
+import TagBadge from '@/components/ui/TagBadge.vue'
+import UButton from '@/components/ui/UButton.vue'
+import DeptBar from '@/components/ui/DeptBar.vue'
 import AgentFormDialog from '@/components/AgentFormDialog.vue'
 import type { AgentMode, AgentSpec } from '@/types/api'
 
 const store = useAgentsStore()
+const router = useRouter()
 const dialogVisible = ref(false)
 const dialogMode = ref<AgentMode>('create')
 const editingAgent = ref<AgentSpec | null>(null)
 
+const deptFilter = ref<string>('all')
+
+const DEPTS = [
+  { id: 'all', name: '全部部门' },
+  { id: 'fin', name: '财务部' },
+  { id: 'hr', name: '人力资源部' },
+  { id: 'it', name: '信息技术部' },
+  { id: 'sale', name: '销售部' },
+]
+
 onMounted(() => store.fetchList())
+
+// synthetic dept mapping: ids are mapped by hash so different agents land
+// in different departments for visual variety. once backend exposes a real
+// field, swap this for `agent.dept`.
+function syntheticDept(id: string): string {
+  const buckets = ['fin', 'fin', 'hr', 'it', 'sale', 'fin']
+  let h = 0
+  for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0
+  return buckets[h % buckets.length]
+}
+
+const filtered = computed(() =>
+  store.list.map((a) => ({ ...a, _deptId: a.dept ? deptIdOf(a.dept) : syntheticDept(a.id) }))
+    .filter((a) => deptFilter.value === 'all' || a._deptId === deptFilter.value),
+)
+
+function deptIdOf(name: string): string {
+  if (name.includes('财务')) return 'fin'
+  if (name.includes('人力')) return 'hr'
+  if (name.includes('信息') || name.includes('IT') || name.includes('技术')) return 'it'
+  if (name.includes('销售')) return 'sale'
+  return 'all'
+}
+
+const grouped = computed(() => {
+  const groups: Record<string, { deptName: string; agents: typeof filtered.value }> = {}
+  for (const a of filtered.value) {
+    const deptName = DEPTS.find((d) => d.id === a._deptId)?.name || '其他'
+    if (!groups[a._deptId]) groups[a._deptId] = { deptName, agents: [] as any }
+    groups[a._deptId].agents.push(a)
+  }
+  return Object.entries(groups)
+})
+
+function agentName(row: AgentSpec) {
+  return row.name && row.name.trim() ? row.name : row.id
+}
 
 function openCreate() {
   dialogMode.value = 'create'
@@ -24,6 +78,14 @@ function openEdit(row: AgentSpec) {
   dialogVisible.value = true
 }
 
+function openDetail(row: AgentSpec) {
+  router.push(`/digital-humans/${encodeURIComponent(row.id)}`)
+}
+
+function openChat(row: AgentSpec) {
+  router.push({ path: '/chat', query: { agent: row.id } })
+}
+
 async function handleSubmit(spec: AgentSpec, mode: AgentMode) {
   if (mode === 'create') {
     await store.create(spec)
@@ -33,129 +95,141 @@ async function handleSubmit(spec: AgentSpec, mode: AgentMode) {
 }
 
 async function handleDelete(row: AgentSpec) {
+  const hasBot = row.dingtalk?.enabled
+  const hasSessions = (row as any).sessions != null && (row as any).sessions > 0
+  const bullets = [
+    '该数字人将立即从列表中移除',
+    '其系统提示词、模型绑定、技能配置一并清空',
+    hasBot ? '已绑定的钉钉机器人将被停用并解除绑定' : null,
+    hasSessions ? '关联的会话历史将保留在工作区目录中，不再可访问' : null,
+  ].filter(Boolean)
+  const displayName = agentName(row)
+  const html = `
+    <div class="del-confirm">
+      <p class="del-confirm__lead">确认删除数字人 <b>${escapeHtml(displayName)}</b><span class="del-confirm__id">（${escapeHtml(row.id)}）</span>？此操作不可撤销。</p>
+      <ul class="del-confirm__list">
+        ${bullets.map((b) => `<li>${escapeHtml(b as string)}</li>`).join('')}
+      </ul>
+      <p class="del-confirm__hint">如不再需要，建议先备份其系统提示词。</p>
+    </div>
+  `
   try {
-    await ElMessageBox.confirm(
-      `确认删除数字人 "${row.id}"？此操作不可撤销。`,
-      '确认操作',
-      {
-        confirmButtonText: '删除',
-        cancelButtonText: '取消',
-        type: 'warning',
-      },
-    )
+    await ElMessageBox.confirm(html, '删除数字人', {
+      confirmButtonText: '删除',
+      cancelButtonText: '取消',
+      type: 'warning',
+      customClass: 'el-message-box--danger',
+      dangerouslyUseHTMLString: true,
+      autofocus: false,
+    })
   } catch {
     return
   }
-  await store.remove(row.id)
-  ElMessage.success(`数字人 "${row.id}" 已删除`)
+  try {
+    await store.remove(row.id)
+    ElMessage.success(`数字人 "${displayName}" 已删除`)
+  } catch {
+    /* axios interceptor 已 ElMessage.error */
+  }
 }
 
-function refresh() {
-  store.fetchList()
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, '&')
+    .replace(/</g, '<')
+    .replace(/>/g, '>')
+    .replace(/"/g, '"')
+    .replace(/'/g, '&#39;')
 }
 
-function pad2(n: number): string {
-  return n < 10 ? `0${n}` : `${n}`
-}
-
-function pad3(n: number): string {
-  if (n < 10) return `00${n}`
-  if (n < 100) return `0${n}`
-  return `${n}`
-}
-
-const total = computed(() => store.list.length)
+const total = computed(() => filtered.value.length)
 </script>
 
 <template>
   <div class="agents-view">
     <header class="agents-view__head">
       <div class="agents-view__head-left">
-        <div class="agents-view__crumb mono">
-          // 数字人库 · 共 {{ pad3(total) }} 条记录
-        </div>
-        <h1 class="agents-view__title">已配置的数字人</h1>
+        <div class="agents-view__h1">部门数字人</div>
+        <div class="agents-view__sub">共 {{ total }} 个数字人 · 按所属部门筛选</div>
       </div>
       <div class="agents-view__actions">
-        <button class="btn-ghost mono" :disabled="store.loading" @click="refresh">
-          <span class="btn-ghost__caret">↻</span>
-          {{ store.loading ? '刷新中' : '刷新' }}
-        </button>
-        <button class="btn-primary" @click="openCreate">
-          <span class="btn-primary__caret">+</span>
-          新建数字人
-        </button>
+        <UButton disabled title="开发中">导入数字人包</UButton>
+        <UButton variant="primary" @click="openCreate">+ 新建数字人</UButton>
       </div>
     </header>
 
-    <section v-if="store.loading && !store.list.length" class="agents-view__loading mono">
+    <DeptBar v-model="deptFilter" :options="DEPTS" />
+
+    <section v-if="store.loading && !store.list.length" class="agents-view__loading">
       正在加载数字人…
     </section>
 
-    <section v-else-if="!store.list.length" class="agents-view__empty">
-      <div class="agents-view__empty-mark mono">// 暂无记录</div>
-      <div class="agents-view__empty-line mono">
-        还没有数字人 — 点击
+    <section v-else-if="!filtered.length" class="agents-view__empty">
+      <div class="agents-view__empty-mark">// 暂无记录</div>
+      <div class="agents-view__empty-line">
+        还没有数字人 —
         <button class="agents-view__empty-cta" @click="openCreate">+ 新建数字人</button>
         来创建第一个
       </div>
     </section>
 
-    <section v-else class="agents-table">
-      <div class="agents-table__head mono">
-        <div class="agents-table__col agents-table__col--id">标识</div>
-        <div class="agents-table__col agents-table__col--model">模型</div>
-        <div class="agents-table__col agents-table__col--meta">工具 · 技能</div>
-        <div class="agents-table__col agents-table__col--act"></div>
+    <template v-else>
+      <div v-for="[deptId, group] in grouped" :key="deptId" class="agents-view__group">
+        <div class="agents-view__group-head">
+          {{ group.deptName }}
+          <span class="agents-view__group-cnt">{{ group.agents.length }} 个数字人</span>
+        </div>
+        <div class="acard-grid">
+          <article
+            v-for="row in group.agents"
+            :key="row.id"
+            class="acard"
+            @click="openDetail(row)"
+          >
+            <div class="acard__row1">
+              <Avatar :initial="(row.name || row.id).slice(0, 1)" size="md" />
+              <div class="acard__id">
+                <div class="acard__name">
+                  {{ agentName(row) }}
+                  <TagBadge>未配置版本</TagBadge>
+                </div>
+                <div class="acard__meta">
+                  <StatusDot status="online" /> · 负责人 {{ row.owner || '未指定' }}
+                </div>
+              </div>
+            </div>
+            <div class="acard__desc">
+              {{ row.sysPrompt ? (row.sysPrompt.length > 60 ? row.sysPrompt.slice(0, 60) + '…' : row.sysPrompt) : '尚未配置系统提示词。' }}
+            </div>
+            <div class="acard__stats">
+              <div class="acard__stat">
+                <b>{{ row.skills?.length ?? 0 }}</b>
+                <span>技能</span>
+              </div>
+              <div class="acard__stat">
+                <b>{{ row.tools?.length ?? 0 }}</b>
+                <span>工具</span>
+              </div>
+              <div class="acard__stat" title="用量数据接入中">
+                <b>—</b>
+                <span>今日 token</span>
+              </div>
+              <div class="acard__stat" title="用量数据接入中">
+                <b>—</b>
+                <span>本月费用</span>
+              </div>
+            </div>
+            <div class="acard__ops">
+              <UButton variant="primary" @click.stop="openChat(row)">对话</UButton>
+              <UButton @click.stop="openDetail(row)">详情</UButton>
+              <UButton disabled title="开发中" @click.stop>导出包</UButton>
+              <UButton variant="ghost" @click.stop="openEdit(row)">编辑</UButton>
+              <UButton disabled @click.stop="handleDelete(row)">删除</UButton>
+            </div>
+          </article>
+        </div>
       </div>
-
-      <article
-        v-for="row in store.list"
-        :key="row.id"
-        class="agents-table__row"
-        @click="openEdit(row)"
-      >
-        <div class="agents-table__col agents-table__col--id">
-          <div class="agents-table__id">
-            <span class="agents-table__id-dot"></span>
-            <span class="agents-table__id-text mono">{{ row.id }}</span>
-            <span v-if="row.name && row.name !== row.id" class="agents-table__name">
-              {{ row.name }}
-            </span>
-            <span
-              v-if="row.dingtalk?.enabled"
-              class="agents-table__bot-dot"
-              title="已绑定钉钉机器人"
-            >●</span>
-          </div>
-          <div v-if="row.sysPrompt" class="agents-table__prompt mono">
-            {{ row.sysPrompt.length > 100 ? row.sysPrompt.slice(0, 100) + '…' : row.sysPrompt }}
-          </div>
-        </div>
-
-        <div class="agents-table__col agents-table__col--model">
-          <span class="agents-table__model-tag mono">{{ row.modelName }}</span>
-        </div>
-
-        <div class="agents-table__col agents-table__col--meta">
-          <div class="agents-table__meta-item">
-            <span class="agents-table__meta-key mono">工具</span>
-            <span class="agents-table__meta-val mono">{{ pad2(row.tools?.length ?? 0) }}</span>
-          </div>
-          <div class="agents-table__meta-item">
-            <span class="agents-table__meta-key mono">技能</span>
-            <span class="agents-table__meta-val mono">{{ pad2(row.skills?.length ?? 0) }}</span>
-          </div>
-        </div>
-
-        <div class="agents-table__col agents-table__col--act">
-          <button class="row-action" @click.stop="openEdit(row)">编辑</button>
-          <button class="row-action row-action--danger" @click.stop="handleDelete(row)">
-            删除
-          </button>
-        </div>
-      </article>
-    </section>
+    </template>
 
     <AgentFormDialog
       v-model="dialogVisible"
@@ -170,30 +244,27 @@ const total = computed(() => store.list.length)
 .agents-view {
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: 16px;
 }
 
-/* ----- head ----- */
 .agents-view__head {
   display: flex;
   align-items: flex-end;
   justify-content: space-between;
-  gap: 16px;
-  padding-bottom: 12px;
-  border-bottom: 1px solid var(--border);
+  gap: 14px;
+  margin-bottom: 4px;
 }
 .agents-view__head-left { min-width: 0; }
-.agents-view__crumb {
-  font-size: 11px;
-  color: var(--text-mute);
-  margin-bottom: 6px;
+.agents-view__h1 {
+  font-size: var(--fs-19);
+  font-weight: 650;
+  letter-spacing: 0.2px;
+  color: var(--txt);
 }
-.agents-view__title {
-  margin: 0;
-  font-size: 24px;
-  font-weight: 600;
-  letter-spacing: -0.02em;
-  color: var(--text);
+.agents-view__sub {
+  color: var(--txt2);
+  font-size: var(--fs-13);
+  margin-top: 3px;
 }
 .agents-view__actions {
   display: flex;
@@ -201,208 +272,142 @@ const total = computed(() => store.list.length)
   gap: 10px;
 }
 
-/* ----- buttons ----- */
-.btn-primary {
-  font-family: var(--font-sans);
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--bg-base);
-  background: var(--signal);
-  border: 1px solid var(--signal);
-  padding: 7px 14px;
-  cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  transition: background-color 0.1s ease, border-color 0.1s ease;
-}
-.btn-primary:hover { background: var(--signal-hover); border-color: var(--signal-hover); }
-.btn-primary__caret { font-family: var(--font-mono); font-size: 14px; }
-
-.btn-ghost {
-  font-family: var(--font-mono);
-  font-size: 12px;
-  color: var(--text-mute);
-  background: transparent;
-  border: 1px solid var(--border);
-  padding: 6px 12px;
-  cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  transition: color 0.1s ease, border-color 0.1s ease;
-}
-.btn-ghost:hover:not(:disabled) { color: var(--text); border-color: var(--text-mute); }
-.btn-ghost:disabled { opacity: 0.4; cursor: not-allowed; }
-.btn-ghost__caret { font-size: 13px; }
-
-/* ----- empty / loading ----- */
+/* loading / empty */
 .agents-view__loading {
   padding: 56px 0;
-  color: var(--text-mute);
-  font-size: 13px;
   text-align: center;
+  color: var(--txt2);
+  font-size: var(--fs-13);
 }
 .agents-view__empty {
-  padding: 72px 0;
+  padding: 64px 24px;
   text-align: center;
-  border: 1px dashed var(--border);
+  border: 1px dashed var(--line);
+  border-radius: var(--radius);
+  background: #fff;
 }
-.agents-view__empty-mark {
-  font-size: 13px;
-  color: var(--text-faint);
-  margin-bottom: 8px;
-}
-.agents-view__empty-line {
-  font-size: 13px;
-  color: var(--text-mute);
-}
+.agents-view__empty-mark { color: var(--txt3); margin-bottom: 8px; font-size: var(--fs-13); }
+.agents-view__empty-line { color: var(--txt2); font-size: var(--fs-13); }
 .agents-view__empty-cta {
   font-family: var(--font-mono);
-  font-size: 12px;
-  color: var(--signal);
+  color: var(--primary);
   background: transparent;
   border: none;
-  padding: 0;
+  padding: 0 4px;
   cursor: pointer;
   text-decoration: underline;
   text-underline-offset: 2px;
-}
-.agents-view__empty-cta:hover { color: var(--signal-hover); }
-
-/* ----- table ----- */
-.agents-table { display: flex; flex-direction: column; }
-
-.agents-table__head,
-.agents-table__row {
-  display: grid;
-  grid-template-columns:
-    minmax(0, 2.6fr)   /* id / name / prompt */
-    minmax(0, 1.2fr)   /* model */
-    minmax(0, 1.4fr)   /* tools/skills */
-    minmax(0, 0.8fr);  /* actions */
-  gap: 16px;
-  align-items: start;
-  padding: 12px 0;
-}
-.agents-table__head {
-  border-top: 1px solid var(--border);
-  border-bottom: 1px solid var(--border);
-  padding: 10px 0;
-  color: var(--text-mute);
-  align-items: center;
-  font-size: 11px;
+  font-size: var(--fs-13);
 }
 
-.agents-table__row {
-  border-bottom: 1px solid var(--border-soft);
-  cursor: pointer;
-  position: relative;
-  transition: background-color 0.08s ease;
-}
-.agents-table__row:hover { background: var(--bg-elevated); }
-.agents-table__row::before {
-  content: '';
-  position: absolute;
-  left: -24px;
-  top: 0;
-  bottom: 0;
-  width: 2px;
-  background: transparent;
-}
-.agents-table__row:hover::before { background: var(--signal); }
-
-.agents-table__col { min-width: 0; }
-.agents-table__col--act {
+/* group */
+.agents-view__group { margin-bottom: 26px; }
+.agents-view__group-head {
+  font-size: var(--fs-13);
+  font-weight: 650;
+  color: var(--txt);
+  margin: 6px 0 10px;
   display: flex;
-  justify-content: flex-end;
   align-items: center;
-  gap: 14px;
-  padding-top: 2px;
+  gap: 7px;
 }
-
-.agents-table__id {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  flex-wrap: wrap;
-  margin-bottom: 4px;
-}
-.agents-table__id-dot {
-  width: 6px;
-  height: 6px;
-  background: var(--ok);
-  display: inline-block;
-  flex-shrink: 0;
-  align-self: center;
-}
-.agents-table__bot-dot {
-  font-size: 8px;
-  color: var(--signal);
-  margin-left: 4px;
-  flex-shrink: 0;
-  align-self: center;
-}
-.agents-table__id-text {
-  font-size: 14px;
+.agents-view__group-cnt {
+  color: var(--txt3);
   font-weight: 500;
-  color: var(--text);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: 220px;
-}
-.agents-table__name {
-  font-size: 12px;
-  color: var(--text-mute);
-}
-.agents-table__prompt {
-  font-size: 12px;
-  color: var(--text-faint);
-  line-height: 1.5;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-  font-family: var(--font-mono);
+  font-size: var(--fs-12);
 }
 
-.agents-table__model-tag {
-  display: inline-block;
-  font-size: 11px;
-  color: var(--signal-2);
-  padding: 2px 8px;
-  border: 1px solid var(--signal-2);
-  background: transparent;
-}
-
-.agents-table__meta-item {
+/* card grid */
+.acard-grid {
   display: grid;
-  grid-template-columns: 50px auto;
-  align-items: center;
-  gap: 8px;
-  font-size: 12px;
-  margin-bottom: 3px;
-}
-.agents-table__meta-key {
-  font-size: 11px;
-  color: var(--text-mute);
-}
-.agents-table__meta-val {
-  font-size: 13px;
-  color: var(--text);
+  grid-template-columns: repeat(auto-fill, minmax(248px, 1fr));
+  gap: 14px;
 }
 
-.row-action {
-  font-family: var(--font-mono);
-  font-size: 12px;
-  color: var(--text-mute);
-  background: transparent;
-  border: none;
-  padding: 2px 0;
+/* card */
+.acard {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 15px;
   cursor: pointer;
-  transition: color 0.1s ease;
+  box-shadow: var(--shadow);
+  transition: transform 0.16s ease, box-shadow 0.16s ease, border-color 0.16s ease;
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
 }
-.row-action:hover { color: var(--text); }
-.row-action--danger:hover { color: var(--err); }
+.acard:hover {
+  transform: translateY(-2px);
+  border-color: #cdd1d8;
+  box-shadow: 0 8px 26px rgba(20,24,31,.09);
+}
+
+.acard__row1 {
+  display: flex;
+  gap: 11px;
+  align-items: center;
+}
+.acard__id { min-width: 0; flex: 1; }
+.acard__name {
+  font-size: var(--fs-15);
+  font-weight: 650;
+  letter-spacing: 0.2px;
+  color: var(--txt);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.acard__meta {
+  color: var(--txt2);
+  font-size: var(--fs-12);
+  margin-top: 2px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.acard__desc {
+  font-size: var(--fs-12);
+  color: var(--txt2);
+  line-height: 1.55;
+  height: 38px;
+  overflow: hidden;
+}
+
+.acard__stats {
+  display: flex;
+  gap: 14px;
+  padding: 10px 0;
+  border-top: 1px dashed var(--line);
+  border-bottom: 1px dashed var(--line);
+}
+.acard__stat {
+  font-size: var(--fs-11);
+  color: var(--txt3);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.acard__stat b {
+  display: block;
+  font-size: var(--fs-13);
+  color: var(--txt);
+  font-weight: 650;
+  letter-spacing: 0.2px;
+}
+
+.acard__ops {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.acard__ops :deep(.u-btn) {
+  height: 28px;
+  padding: 0 10px;
+  font-size: var(--fs-12);
+}
 </style>

@@ -19,6 +19,9 @@ public class ChatResponse {
     @Schema(description = "本次回复中发生的工具调用列表，按发生顺序；可空")
     private List<ToolCallDto> toolCalls = new ArrayList<>();
 
+    @Schema(description = "本次回复中发生的 LLM 调用统计列表，按发生顺序；可能为空")
+    private List<UsageDto> usages = new ArrayList<>();
+
     public ChatResponse() {}
 
     public ChatResponse(String reply) {
@@ -36,6 +39,13 @@ public class ChatResponse {
         this.toolCalls = toolCalls == null ? new ArrayList<>() : toolCalls;
     }
 
+    public ChatResponse(String reply, String thinking, List<ToolCallDto> toolCalls, List<UsageDto> usages) {
+        this.reply = reply;
+        this.thinking = thinking;
+        this.toolCalls = toolCalls == null ? new ArrayList<>() : toolCalls;
+        this.usages = usages == null ? new ArrayList<>() : usages;
+    }
+
     public String getReply() { return reply; }
     public void setReply(String reply) { this.reply = reply; }
 
@@ -44,4 +54,7 @@ public class ChatResponse {
 
     public List<ToolCallDto> getToolCalls() { return toolCalls; }
     public void setToolCalls(List<ToolCallDto> toolCalls) { this.toolCalls = toolCalls; }
+
+    public List<UsageDto> getUsages() { return usages; }
+    public void setUsages(List<UsageDto> usages) { this.usages = usages == null ? new ArrayList<>() : usages; }
 }

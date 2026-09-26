@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="org.example.task.mapper.AcTaskRunMapper">
+
+    <!-- 控制噪音：单任务保留最新 maxKeep 条，其余（按 startedAt 升序排在 maxKeep 之后的旧记录）删除。
+         嵌套子查询是为了绕开 MySQL "can't specify target table for update in FROM clause" 限制。 -->
+    <delete id="trim">
+        DELETE FROM ac_task_run
+        WHERE run_id IN (
+            SELECT run_id FROM (
+                SELECT run_id FROM ac_task_run
+                WHERE task_id = #{taskId}
+                ORDER BY started_at DESC
+                LIMIT #{maxKeep}, 18446744073709551615
+            ) t
+        )
+    </delete>
+
+</mapper>

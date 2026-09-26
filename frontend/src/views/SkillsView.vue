@@ -148,7 +148,7 @@ function formatBytes(bytes: number): string {
 
 function formatTime(ts: number): string {
   if (!ts) return '—'
-  return new Date(ts * 1000).toLocaleString('zh-CN', { hour12: false })
+  return new Date(ts * 1000).toLocaleString('zh-CN', { hour12: false, timeZone: 'Asia/Shanghai' })
 }
 
 function pad2(n: number): string {
@@ -381,7 +381,7 @@ const total = computed(() => store.list.length)
 .skills-view {
   display: flex;
   flex-direction: column;
-  gap: 28px;
+  gap: 20px;
 }
 
 /* ----- head ----- */
@@ -391,30 +391,31 @@ const total = computed(() => store.list.length)
   justify-content: space-between;
   gap: 16px;
   padding-bottom: 12px;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--line);
 }
 .skills-view__crumb {
   font-size: 11px;
-  color: var(--text-mute);
+  color: var(--txt2);
   margin-bottom: 6px;
 }
 .skills-view__title {
   margin: 0 0 6px;
-  font-size: 24px;
-  font-weight: 600;
-  letter-spacing: -0.02em;
-  color: var(--text);
+  font-size: var(--fs-19);
+  font-weight: 650;
+  letter-spacing: 0.2px;
+  color: var(--txt);
 }
 .skills-view__sub {
   font-size: 12px;
-  color: var(--text-mute);
+  color: var(--txt2);
 }
 .skills-view__sub code {
   font-family: var(--font-mono);
-  background: var(--bg-elevated);
-  border: 1px solid var(--border);
+  background: var(--primary-soft);
+  border: 1px solid var(--line);
   padding: 0 4px;
-  color: var(--text);
+  border-radius: 4px;
+  color: var(--txt);
   font-size: 11px;
 }
 .skills-view__actions {
@@ -428,10 +429,11 @@ const total = computed(() => store.list.length)
   font-family: var(--font-sans);
   font-size: 13px;
   font-weight: 600;
-  color: var(--bg-base);
-  background: var(--signal);
-  border: 1px solid var(--signal);
+  color: #fff;
+  background: var(--primary);
+  border: 1px solid var(--primary);
   padding: 7px 14px;
+  border-radius: var(--radius-sm);
   cursor: pointer;
   display: inline-flex;
   align-items: center;
@@ -439,26 +441,30 @@ const total = computed(() => store.list.length)
   transition: background-color 0.1s ease, border-color 0.1s ease;
 }
 .btn-primary:hover:not(:disabled) {
-  background: var(--signal-hover);
-  border-color: var(--signal-hover);
+  background: var(--primary-hover);
+  border-color: var(--primary-hover);
 }
 .btn-primary:disabled { opacity: 0.4; cursor: not-allowed; }
 .btn-primary__caret { font-family: var(--font-mono); font-size: 14px; }
 
 .btn-ghost {
-  font-family: var(--font-mono);
+  font-family: var(--font-sans);
   font-size: 12px;
-  color: var(--text-mute);
-  background: transparent;
-  border: 1px solid var(--border);
+  color: var(--txt2);
+  background: var(--primary-soft);
+  border: 1px solid transparent;
   padding: 6px 12px;
+  border-radius: var(--radius-sm);
   cursor: pointer;
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  transition: color 0.1s ease, border-color 0.1s ease;
+  transition: color 0.1s ease, border-color 0.1s ease, background-color 0.1s ease;
 }
-.btn-ghost:hover:not(:disabled) { color: var(--text); border-color: var(--text-mute); }
+.btn-ghost:hover:not(:disabled) {
+  color: var(--primary);
+  background: var(--primary-tint);
+}
 .btn-ghost:disabled { opacity: 0.4; cursor: not-allowed; }
 .btn-ghost__caret { font-size: 13px; }
 
@@ -477,14 +483,14 @@ const total = computed(() => store.list.length)
   padding: 8px 0;
   margin-bottom: -1px;
   border-bottom: 2px solid transparent;
-  color: var(--text-mute);
+  color: var(--txt2);
   cursor: pointer;
   transition: color 0.1s ease, border-color 0.1s ease;
 }
-.skills-uploader__tab:hover { color: var(--text); }
+.skills-uploader__tab:hover { color: var(--txt); }
 .skills-uploader__tab.is-active {
-  color: var(--text);
-  border-bottom-color: var(--signal);
+  color: var(--primary);
+  border-bottom-color: var(--primary);
   font-weight: 600;
 }
 .skills-uploader__panel { padding: 16px 0 0; }
@@ -495,53 +501,56 @@ const total = computed(() => store.list.length)
   gap: 12px;
   align-items: center;
   padding: 14px 14px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
   cursor: pointer;
   transition: border-color 0.1s ease, background-color 0.1s ease;
+  background: var(--panel);
 }
-.drop-row:hover { border-color: var(--text-mute); }
+.drop-row:hover { border-color: var(--txt2); }
 .drop-row--active {
-  border-color: var(--signal);
-  background: var(--bg-surface);
+  border-color: var(--primary);
+  background: var(--primary-soft);
 }
 .drop-row--busy { opacity: 0.5; cursor: wait; }
 .drop-row__caret {
   font-size: 18px;
-  color: var(--signal);
+  color: var(--primary);
   text-align: center;
 }
 .drop-row__text {
   font-size: 13px;
-  color: var(--text);
+  color: var(--txt);
 }
 .drop-row__text strong {
-  color: var(--signal);
+  color: var(--primary);
   font-weight: 600;
 }
 .drop-row__sep {
-  color: var(--text-faint);
+  color: var(--txt3);
   margin: 0 4px;
 }
 .drop-row__hint {
   font-size: 11px;
-  color: var(--text-faint);
+  color: var(--txt3);
   text-align: right;
 }
 
 .md-input {
   width: 100%;
-  border: 1px solid var(--border);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
   resize: vertical;
   font-family: var(--font-mono);
   font-size: 12px;
-  line-height: var(--lh-base);
-  color: var(--text);
+  line-height: 1.6;
+  color: var(--txt);
   padding: 12px;
-  background: var(--bg-surface);
+  background: var(--panel);
   outline: none;
   transition: border-color 0.1s ease;
 }
-.md-input:focus { border-color: var(--signal); }
+.md-input:focus { border-color: var(--primary); }
 .md-bar {
   display: flex;
   align-items: center;
@@ -550,7 +559,7 @@ const total = computed(() => store.list.length)
 }
 .md-bar__hint {
   font-size: 11px;
-  color: var(--text-mute);
+  color: var(--txt2);
 }
 
 /* ----- table ----- */
@@ -571,20 +580,20 @@ const total = computed(() => store.list.length)
   padding: 12px 0;
 }
 .skills-table__head {
-  border-top: 1px solid var(--border);
-  border-bottom: 1px solid var(--border);
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
   padding: 10px 0;
-  color: var(--text-mute);
+  color: var(--txt2);
   align-items: center;
   font-size: 11px;
 }
 .skills-table__row {
-  border-bottom: 1px solid var(--border-soft);
+  border-bottom: 1px solid var(--line-soft);
   cursor: pointer;
   transition: background-color 0.08s ease;
   position: relative;
 }
-.skills-table__row:hover { background: var(--bg-elevated); }
+.skills-table__row:hover { background: var(--bg); }
 .skills-table__row::before {
   content: '';
   position: absolute;
@@ -594,18 +603,18 @@ const total = computed(() => store.list.length)
   width: 2px;
   background: transparent;
 }
-.skills-table__row:hover::before { background: var(--signal); }
+.skills-table__row:hover::before { background: var(--primary); }
 
 .skills-table__col { min-width: 0; }
 .skills-table__col--num {
   text-align: right;
   font-size: 12px;
-  color: var(--text);
+  color: var(--txt);
   padding-top: 2px;
 }
 .skills-table__col--time {
   font-size: 11px;
-  color: var(--text-mute);
+  color: var(--txt2);
   padding-top: 3px;
 }
 .skills-table__col--act {
@@ -618,12 +627,12 @@ const total = computed(() => store.list.length)
 
 .skills-row__name {
   font-size: 13px;
-  color: var(--text);
+  color: var(--txt);
   font-weight: 500;
 }
 .skills-row__desc {
   font-size: 13px;
-  color: var(--text-mute);
+  color: var(--txt2);
   display: -webkit-box;
   -webkit-line-clamp: 1;
   -webkit-box-orient: vertical;
@@ -631,44 +640,46 @@ const total = computed(() => store.list.length)
 }
 
 .row-action {
-  font-family: var(--font-mono);
+  font-family: var(--font-sans);
   font-size: 12px;
-  color: var(--text-mute);
+  color: var(--txt2);
   background: transparent;
   border: none;
   padding: 2px 0;
   cursor: pointer;
   transition: color 0.1s ease;
 }
-.row-action:hover { color: var(--text); }
-.row-action--danger:hover { color: var(--err); }
+.row-action:hover { color: var(--txt); }
+.row-action--danger:hover { color: var(--red); }
 
 .skills-table__loading {
   padding: 56px 0;
-  color: var(--text-mute);
+  color: var(--txt2);
   font-size: 13px;
   text-align: center;
 }
 .skills-table__empty {
-  padding: 72px 0;
+  padding: 64px 24px;
   text-align: center;
-  border: 1px dashed var(--border);
+  border: 1px dashed var(--line);
+  border-radius: var(--radius);
+  background: var(--panel);
 }
 .skills-table__empty-mark {
   font-size: 13px;
-  color: var(--text-faint);
+  color: var(--txt3);
   margin-bottom: 8px;
 }
 .skills-table__empty-line {
   font-size: 13px;
-  color: var(--text-mute);
+  color: var(--txt2);
 }
 
 /* ----- drawer ----- */
 .drawer-mask {
   position: fixed;
   inset: 0;
-  background: rgba(54, 69, 79, 0.4);
+  background: rgba(24,27,32,.42);
   z-index: var(--z-overlay);
   display: flex;
   justify-content: flex-end;
@@ -676,30 +687,30 @@ const total = computed(() => store.list.length)
 .drawer {
   width: min(640px, 100%);
   height: 100%;
-  background: var(--bg-base);
-  border-left: 1px solid var(--border);
+  background: var(--bg);
+  border-left: 1px solid var(--line);
   display: flex;
   flex-direction: column;
 }
 .drawer__head {
   padding: 16px 20px;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--line);
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
-  background: var(--bg-surface);
+  background: var(--panel);
 }
 .drawer__crumb {
   font-size: 11px;
-  color: var(--text-mute);
+  color: var(--txt2);
   margin-bottom: 4px;
 }
 .drawer__title {
   font-size: 18px;
-  font-weight: 600;
-  color: var(--text);
-  letter-spacing: -0.01em;
+  font-weight: 650;
+  color: var(--txt);
+  letter-spacing: 0;
 }
 .drawer__close { flex-shrink: 0; }
 .drawer__body {
@@ -710,20 +721,21 @@ const total = computed(() => store.list.length)
 .drawer__section-head {
   margin: 20px 0 8px;
   padding-top: 12px;
-  border-top: 1px solid var(--border-soft);
+  border-top: 1px solid var(--line-soft);
   font-size: 11px;
-  color: var(--text-mute);
+  color: var(--txt2);
 }
 .drawer__md {
   margin: 0;
   font-size: 12px;
-  line-height: var(--lh-base);
-  background: var(--bg-surface);
-  border: 1px solid var(--border);
+  line-height: 1.6;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
   padding: 12px 16px;
   white-space: pre-wrap;
   word-break: break-word;
-  color: var(--text);
+  color: var(--txt);
 }
 
 .kv {
@@ -733,15 +745,15 @@ const total = computed(() => store.list.length)
   margin: 0;
 }
 .kv__key {
-  color: var(--text-mute);
+  color: var(--txt2);
   padding: 4px 0;
   font-size: 11px;
 }
 .kv dd {
   margin: 0;
   padding: 4px 0;
-  color: var(--text);
-  border-bottom: 1px solid var(--border-soft);
+  color: var(--txt);
+  border-bottom: 1px solid var(--line-soft);
   font-size: 13px;
 }
 .kv__pre { margin: 0; font-size: 11px; }

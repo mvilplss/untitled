@@ -24,6 +24,12 @@ public class ChatHistoryMessage {
     @Schema(description = "本次回复中发生的工具调用列表（按发生顺序）；可空")
     private List<ToolCallDto> toolCalls = new ArrayList<>();
 
+    @Schema(description = "本次 assistant 消息关联的 LLM 调用统计列表（按发生顺序；空表示无 sidecar 数据）")
+    private List<UsageDto> usages = new ArrayList<>();
+
+    @Schema(description = "本次 user 消息关联的附件列表（空表示无附件）")
+    private List<AttachmentDto> attachments = new ArrayList<>();
+
     public ChatHistoryMessage() {}
 
     public ChatHistoryMessage(String role, String content, String thinking, long timestamp) {
@@ -56,4 +62,12 @@ public class ChatHistoryMessage {
 
     public List<ToolCallDto> getToolCalls() { return toolCalls; }
     public void setToolCalls(List<ToolCallDto> toolCalls) { this.toolCalls = toolCalls; }
+
+    public List<UsageDto> getUsages() { return usages; }
+    public void setUsages(List<UsageDto> usages) { this.usages = usages == null ? new ArrayList<>() : usages; }
+
+    public List<AttachmentDto> getAttachments() { return attachments; }
+    public void setAttachments(List<AttachmentDto> attachments) {
+        this.attachments = attachments == null ? new ArrayList<>() : attachments;
+    }
 }

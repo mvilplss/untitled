@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="org.example.task.mapper.AcScheduledTaskMapper">
+
+    <!-- 聚合：每个 task 的最近一次 run 起始时间（毫秒）。
+         用 resultType + map-underscore-to-camel-case 自动把 task_id → taskId、last_run_at → lastRunAt。 -->
+    <select id="lastRunAtByTaskId" resultType="org.example.task.LastRunSummary">
+        SELECT task_id, MAX(started_at) AS last_run_at
+        FROM ac_task_run
+        WHERE started_at IS NOT NULL
+        GROUP BY task_id
+    </select>
+
+</mapper>

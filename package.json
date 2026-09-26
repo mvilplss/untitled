@@ -1,0 +1,18 @@
+{
+  "name": "untitled-agent",
+  "private": true,
+  "version": "1.0.0",
+  "description": "数字人平台 monorepo：后端 Spring Boot + frontend Vue 3 + desktop Electron 壳",
+  "workspaces": [
+    "frontend",
+    "desktop"
+  ],
+  "scripts": {
+    "dev:backend": "mvn -q spring-boot:run",
+    "dev:frontend": "npm --workspace frontend run dev",
+    "dev:desktop": "npm --workspace desktop run dev",
+    "build:frontend": "npm --workspace frontend run build",
+    "build:desktop": "npm --workspace desktop run start",
+    "type-check:frontend": "npm --workspace frontend run type-check"
+  }
+}

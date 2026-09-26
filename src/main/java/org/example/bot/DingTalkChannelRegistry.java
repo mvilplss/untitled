@@ -55,6 +55,8 @@ public class DingTalkChannelRegistry {
     private final ReentrantLock lock = new ReentrantLock();
     /** channelId → 当前生效的 DingTalk 配置（用于查询当前状态） */
     private final Map<String, DingTalkBotConfig> activeConfigs = new ConcurrentHashMap<>();
+    /** channelId → 最近一次启动失败的原因（启动成功 / 卸载时清空） */
+    private final Map<String, String> lastErrors = new ConcurrentHashMap<>();
 
     public DingTalkChannelRegistry() {
     }
@@ -72,16 +74,36 @@ public class DingTalkChannelRegistry {
         if (seeds.isEmpty()) {
             throw new IllegalArgumentException("seeds 为空，请调 initializeWithStub()");
         }
-        build(seeds);
+        build(seeds, null);
+    }
+
+    /**
+     * 用真实 seeds 初始化 GatewayBootstrap，并附带每个 seed 对应的 agentId（来自 AgentSpec.id）
+     * 用于启动日志区分；agentIds 与 seeds 一一对应且长度相同。已初始化则 no-op。
+     */
+    public synchronized void initialize(List<HarnessAgent> seeds, List<String> agentIds) {
+        Objects.requireNonNull(seeds, "seeds");
+        Objects.requireNonNull(agentIds, "agentIds");
+        if (bootstrap != null) {
+            log.info("DingTalkChannelRegistry already initialized, re-init is a no-op");
+            return;
+        }
+        if (seeds.isEmpty()) {
+            throw new IllegalArgumentException("seeds 为空，请调 initializeWithStub()");
+        }
+        if (seeds.size() != agentIds.size()) {
+            throw new IllegalArgumentException("seeds 与 agentIds 长度不一致");
+        }
+        build(seeds, agentIds);
     }
 
     /** 持久化为空时初始化：构造一个永不路由的占位 stub 作 main。 */
     public synchronized void initializeWithStub() {
         if (bootstrap != null) return;
-        build(List.of(buildStubAgent()));
+        build(List.of(buildStubAgent()), null);
     }
 
-    private void build(List<HarnessAgent> seeds) {
+    private void build(List<HarnessAgent> seeds, List<String> agentIds) {
         GatewayBootstrap.Builder b = GatewayBootstrap.builder();
         HarnessAgent main = seeds.get(0);
         b.agent(main.getAgentId(), main).mainAgent(main.getAgentId());
@@ -91,8 +113,9 @@ public class DingTalkChannelRegistry {
         }
         this.bootstrap = b.build();
         this.channelManager = bootstrap.channelManager();
+        String mainLabel = (agentIds != null && !agentIds.isEmpty()) ? agentIds.get(0) : main.getAgentId();
         log.info("DingTalkChannelRegistry initialized with {} seed agents (main='{}')",
-                seeds.size(), main.getAgentId());
+                seeds.size(), mainLabel);
     }
 
     private static HarnessAgent buildStubAgent() {
@@ -154,34 +177,39 @@ public class DingTalkChannelRegistry {
                 activeConfigs.remove(channelId);
             }
 
-            if (cfg == null || !cfg.isEnabled()) {
-                log.info("DingTalk channel '{}' disabled (agent='{}')", channelId, agentId);
-                return;
-            }
-            if (!cfg.isComplete()) {
-                throw new IllegalArgumentException(
-                        "dingtalk 配置不完整：appKey / appSecret / robotCode 必填");
-            }
+        if (cfg == null || !cfg.isEnabled()) {
+            log.info("DingTalk channel '{}' disabled (agent='{}')", channelId, agentId);
+            lastErrors.remove(channelId);
+            return;
+        }
+        if (!cfg.isComplete()) {
+            throw new IllegalArgumentException(
+                    "dingtalk 配置不完整：appKey / appSecret / robotCode 必填");
+        }
 
-            ChannelConfig routing = ChannelConfig.builder(channelId)
-                    .defaultAgentId(agentId)
-                    .build();
-            Map<String, Object> raw = new LinkedHashMap<>();
-            raw.put("appKey", cfg.getAppKey());
-            raw.put("appSecret", cfg.getAppSecret());
-            raw.put("robotCode", cfg.getRobotCode());
+        ChannelConfig routing = ChannelConfig.builder(channelId)
+                .defaultAgentId(agentId)
+                .build();
+        Map<String, Object> raw = new LinkedHashMap<>();
+        raw.put("appKey", cfg.getAppKey());
+        raw.put("appSecret", cfg.getAppSecret());
+        raw.put("robotCode", cfg.getRobotCode());
 
-            Channel channel = DingTalkChannel.fromProperties(channelId, routing, raw);
-            channelManager.register(channel);
-            try {
-                channel.init(bootstrap.gateway());
-                channel.start();
-            } catch (Exception e) {
-                channelManager.unregister(channelId);
-                throw e;
-            }
-            activeConfigs.put(channelId, cfg);
-            log.info("DingTalk channel '{}' started (agent='{}')", channelId, agentId);
+        Channel channel = DingTalkChannel.fromProperties(channelId, routing, raw);
+        channelManager.register(channel);
+        try {
+            channel.init(bootstrap.gateway());
+            channel.start();
+            lastErrors.remove(channelId);
+        } catch (Exception e) {
+            channelManager.unregister(channelId);
+            String reason = e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage();
+            lastErrors.put(channelId, reason);
+            log.warn("DingTalk channel '{}' start failed (agent='{}'): {}", channelId, agentId, reason);
+            throw e;
+        }
+        activeConfigs.put(channelId, cfg);
+        log.info("DingTalk channel '{}' started (agent='{}')", channelId, agentId);
         } finally {
             lock.unlock();
         }
@@ -206,6 +234,32 @@ public class DingTalkChannelRegistry {
         return activeConfigs.get(channelId(agentId));
     }
 
+    /**
+     * 返回指定 agent 机器人 channel 的健康状态。
+     *
+     * <p>语义：
+     * <ul>
+     *   <li>{@code ACTIVE} —— channel 已注册到 ChannelManager 且 manager 已启动</li>
+     *   <li>{@code STARTING} —— 有持久化配置但 channel 尚未在 manager 中（多出现于刚 loadFromPersistence 后）</li>
+     *   <li>{@code ERROR} —— 上一次 {@link #apply} 时记录了错误（如钉钉网关 401）</li>
+     *   <li>{@code DISABLED} —— 未配置 / 未启用</li>
+     * </ul>
+     */
+    public HealthStatus health(String agentId) {
+        String cid = channelId(agentId);
+        if (!isInitialized()) return HealthStatus.DISABLED;
+        String err = lastErrors.get(cid);
+        boolean present = channelManager.getChannel(cid).isPresent();
+        if (err != null) return HealthStatus.ERROR;
+        if (present && activeConfigs.containsKey(cid)) return HealthStatus.ACTIVE;
+        if (activeConfigs.containsKey(cid)) return HealthStatus.STARTING;
+        return HealthStatus.DISABLED;
+    }
+
+    public String lastError(String agentId) {
+        return lastErrors.get(channelId(agentId));
+    }
+
     public Collection<String> activeAgentIds() {
         return activeConfigs.keySet().stream()
                 .map(DingTalkChannelRegistry::agentIdFromChannel)
@@ -228,5 +282,10 @@ public class DingTalkChannelRegistry {
         log.info("DingTalkChannelRegistry shutting down: {} active channels", activeConfigs.size());
         channelManager.stopAll();
         activeConfigs.clear();
+        lastErrors.clear();
+    }
+
+    public enum HealthStatus {
+        DISABLED, STARTING, ACTIVE, ERROR
     }
 }

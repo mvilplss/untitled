@@ -53,6 +53,23 @@ public class DingTalkBotController {
     }
 
     @Operation(
+            summary = "查询数字人钉钉机器人运行状态",
+            description = "返回 channel 健康状态 (DISABLED / STARTING / ACTIVE / ERROR)。若 status=ERROR，lastError 字段携带原因。"
+    )
+    @ApiResponse(responseCode = "200", description = "OK",
+            content = @Content(schema = @Schema(implementation = DingTalkBotHealth.class)))
+    @GetMapping("/health")
+    public DingTalkBotHealth health(
+            @Parameter(description = "Agent ID", example = "coder")
+            @PathVariable("id") String agentId) {
+        try {
+            return service.health(agentId);
+        } catch (NoSuchElementException e) {
+            throw new NotFoundException(e.getMessage());
+        }
+    }
+
+    @Operation(
             summary = "启/改数字人钉钉机器人",
             description = "应用新的机器人配置并持久化，立即启动/重启 Channel。appSecret 若传 '***' 则保留旧值。"
     )

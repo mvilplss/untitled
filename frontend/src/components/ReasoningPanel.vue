@@ -142,8 +142,9 @@ async function copyThinking() {
 <style scoped>
 .reasoning {
   margin: 6px 0 10px;
-  border-left: 2px solid var(--signal-2);
-  background: var(--bg-surface);
+  border-left: 2px solid var(--primary);
+  background: var(--panel);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
 }
 
 /* ============ Master ============ */

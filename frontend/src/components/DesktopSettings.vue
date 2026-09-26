@@ -1,12 +1,11 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
+import { inElectron } from '@/utils/env'
 import type { DesktopBackendStatus, DesktopConfig } from '@/types/electron'
 
 const props = defineProps<{ visible: boolean }>()
 const emit = defineEmits<{ (e: 'update:visible', v: boolean): void }>()
-
-const inElectron = computed(() => typeof window !== 'undefined' && !!window.electronAPI)
 
 const visible = computed({
   get: () => props.visible,
@@ -158,7 +157,7 @@ const statusClass = computed(() => `status-pill--${status.value.status}`)
 .ds-mask {
   position: fixed;
   inset: 0;
-  background: rgba(54, 69, 79, 0.4);
+  background: rgba(24,27,32,.42);
   z-index: var(--z-overlay);
   display: flex;
   justify-content: flex-end;
@@ -167,46 +166,48 @@ const statusClass = computed(() => `status-pill--${status.value.status}`)
 .ds-drawer {
   width: min(560px, 100%);
   height: 100%;
-  background: var(--bg-base);
-  border-left: 1px solid var(--border);
+  background: var(--bg);
+  border-left: 1px solid var(--line);
   display: flex;
   flex-direction: column;
+  box-shadow: -8px 0 32px rgba(20,24,31,.08);
 }
 
 .ds-head {
   padding: 16px 20px;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--line);
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
-  background: var(--bg-surface);
+  background: var(--panel);
 }
 
 .ds-crumb {
   font-size: 11px;
-  color: var(--text-mute);
+  color: var(--txt2);
   margin-bottom: 4px;
 }
 
 .ds-title {
   font-size: 18px;
-  font-weight: 600;
-  color: var(--text);
-  letter-spacing: -0.01em;
+  font-weight: 650;
+  color: var(--txt);
+  letter-spacing: 0;
 }
 
 .ds-close {
-  font-family: var(--font-mono);
+  font-family: var(--font-sans);
   font-size: 12px;
-  color: var(--text-mute);
+  color: var(--txt2);
   background: transparent;
-  border: 1px solid var(--border);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
   padding: 6px 10px;
   cursor: pointer;
 }
 
-.ds-close:hover { color: var(--text); border-color: var(--text-mute); }
+.ds-close:hover { color: var(--txt); border-color: var(--txt2); }
 
 .ds-body {
   flex: 1;
@@ -222,29 +223,30 @@ const statusClass = computed(() => `status-pill--${status.value.status}`)
   flex-direction: column;
   gap: 10px;
   padding-bottom: 16px;
-  border-bottom: 1px solid var(--border-soft);
+  border-bottom: 1px solid var(--line-soft);
 }
 
 .ds-section:last-child { border-bottom: none; }
 
 .ds-section-head {
   font-size: 11px;
-  color: var(--text-mute);
+  color: var(--txt2);
 }
 
 .ds-hint {
   font-size: 12px;
-  color: var(--text-mute);
+  color: var(--txt2);
   line-height: 1.6;
 }
 
 .ds-hint code {
   font-family: var(--font-mono);
-  background: var(--bg-elevated);
-  border: 1px solid var(--border);
+  background: var(--primary-soft);
+  border: 1px solid var(--line);
   padding: 0 4px;
+  border-radius: 4px;
   font-size: 11px;
-  color: var(--text);
+  color: var(--txt);
 }
 
 .ds-section--actions {
@@ -259,20 +261,22 @@ const statusClass = computed(() => `status-pill--${status.value.status}`)
   align-items: center;
   gap: 10px;
   padding: 12px 14px;
-  background: var(--bg-surface);
-  border: 1px solid var(--border);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
 }
 
 .ds-status-dot {
   width: 8px;
   height: 8px;
+  border-radius: 50%;
   display: inline-block;
 }
 
-.ds-status-dot.status-pill--ready { background: var(--ok); }
+.ds-status-dot.status-pill--ready { background: var(--green); }
 .ds-status-dot.status-pill--starting { background: #d6a300; }
-.ds-status-dot.status-pill--error { background: var(--err); }
-.ds-status-dot.status-pill--idle { background: var(--text-faint); }
+.ds-status-dot.status-pill--error { background: var(--red); }
+.ds-status-dot.status-pill--idle { background: var(--txt3); }
 
 .ds-status-label {
   font-size: 12px;
@@ -298,9 +302,10 @@ const statusClass = computed(() => `status-pill--${status.value.status}`)
   font-family: var(--font-sans);
   font-size: 13px;
   font-weight: 600;
-  color: var(--bg-base);
-  background: var(--signal);
-  border: 1px solid var(--signal);
+  color: #fff;
+  background: var(--primary);
+  border: 1px solid var(--primary);
+  border-radius: var(--radius-sm);
   padding: 7px 14px;
   cursor: pointer;
   display: inline-flex;
@@ -312,17 +317,18 @@ const statusClass = computed(() => `status-pill--${status.value.status}`)
 .btn-primary__caret { font-family: var(--font-mono); font-size: 14px; }
 
 .btn-ghost {
-  font-family: var(--font-mono);
+  font-family: var(--font-sans);
   font-size: 12px;
-  color: var(--text-mute);
-  background: transparent;
-  border: 1px solid var(--border);
+  color: var(--txt2);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
   padding: 6px 12px;
   cursor: pointer;
 }
 
 .btn-ghost:disabled { opacity: 0.4; cursor: not-allowed; }
-.btn-ghost:hover:not(:disabled) { color: var(--text); border-color: var(--text-mute); }
+.btn-ghost:hover:not(:disabled) { color: var(--txt); border-color: var(--txt2); }
 
 .ds-fade-enter-active, .ds-fade-leave-active { transition: opacity 0.12s ease; }
 .ds-fade-enter-active .ds-drawer, .ds-fade-leave-active .ds-drawer { transition: transform 0.18s ease; }

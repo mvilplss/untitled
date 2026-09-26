@@ -4,6 +4,9 @@ import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Pattern;
 
+import java.util.ArrayList;
+import java.util.List;
+
 @Schema(description = "同步对话请求体")
 public class ChatRequest {
 
@@ -31,6 +34,9 @@ public class ChatRequest {
     @NotBlank(message = "message 不能为空")
     private String message;
 
+    @Schema(description = "附件列表（通过 POST /api/agents/{id}/chat/upload 上传后返回的引用）")
+    private List<AttachmentDto> attachments = new ArrayList<>();
+
     public String getAgentId() { return agentId; }
     public void setAgentId(String agentId) { this.agentId = agentId; }
 
@@ -42,4 +48,9 @@ public class ChatRequest {
 
     public String getMessage() { return message; }
     public void setMessage(String message) { this.message = message; }
+
+    public List<AttachmentDto> getAttachments() { return attachments; }
+    public void setAttachments(List<AttachmentDto> attachments) {
+        this.attachments = attachments == null ? new ArrayList<>() : attachments;
+    }
 }

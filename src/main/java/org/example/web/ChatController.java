@@ -47,8 +47,9 @@ public class ChatController {
                     req.getAgentId(),
                     nz(req.getSessionId(), "default"),
                     nz(req.getUserId(), "anonymous"),
-                    req.getMessage());
-            return new ChatResponse(r.reply(), r.thinking(), r.toolCalls());
+                    req.getMessage(),
+                    req.getAttachments());
+            return new ChatResponse(r.reply(), r.thinking(), r.toolCalls(), r.usages());
         } catch (NoSuchElementException e) {
             throw new NotFoundException(e.getMessage());
         }

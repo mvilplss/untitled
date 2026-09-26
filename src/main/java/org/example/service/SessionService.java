@@ -3,9 +3,11 @@ package org.example.service;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.example.agent.AgentRegistry;
+import org.example.web.dto.AttachmentDto;
 import org.example.web.dto.ChatHistoryMessage;
 import org.example.web.dto.SessionInfo;
 import org.example.web.dto.ToolCallDto;
+import org.example.web.dto.UsageDto;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -14,6 +16,7 @@ import java.io.IOException;
 import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
@@ -42,7 +45,7 @@ public class SessionService {
         this.registry = registry;
     }
 
-    /** 列出某 agent 下所有 session 的元信息（跳过空 jsonl） */
+    /** 列出某 agent 下所有 session 的元信息（跳过空 jsonl）。定时任务会话（task- 前缀）标记 isTask 一并返回。 */
     public List<SessionInfo> listSessions(String agentId) {
         Path sessionsDir = findSessionsDir(agentId);
         if (sessionsDir == null || !Files.isDirectory(sessionsDir)) {
@@ -64,7 +67,7 @@ public class SessionService {
     }
 
     /**
-     * 删除某 session 的 jsonl + log.jsonl 文件。
+     * 删除某 session 的 jsonl + log.jsonl 文件 + usage sidecar。
      * sessionId 必须仅含安全字符（防路径穿越）。
      * @return true 至少删除了一个文件；false 文件不存在
      */
@@ -74,19 +77,39 @@ public class SessionService {
             throw new IllegalArgumentException("invalid sessionId");
         }
         Path sessionsDir = findSessionsDir(agentId);
-        if (sessionsDir == null) return false;
-
         boolean removed = false;
-        for (String suffix : new String[]{".jsonl", ".log.jsonl"}) {
-            Path target = sessionsDir.resolve(sessionId + suffix);
-            try {
-                if (Files.deleteIfExists(target)) {
-                    removed = true;
-                    log.info("Deleted session file: {}", target);
+        if (sessionsDir != null) {
+            for (String suffix : new String[]{".jsonl", ".log.jsonl"}) {
+                Path target = sessionsDir.resolve(sessionId + suffix);
+                try {
+                    if (Files.deleteIfExists(target)) {
+                        removed = true;
+                        log.info("Deleted session file: {}", target);
+                    }
+                } catch (IOException e) {
+                    log.warn("Failed to delete {}: {}", target, e.getMessage());
                 }
-            } catch (IOException e) {
-                log.warn("Failed to delete {}: {}", target, e.getMessage());
             }
+        }
+        // usage sidecar（独立于 sessions 目录，每个 agent 各自一份）
+        Path usageFile = usageFile(agentId, sessionId);
+        try {
+            if (Files.deleteIfExists(usageFile)) {
+                removed = true;
+                log.info("Deleted usage file: {}", usageFile);
+            }
+        } catch (IOException e) {
+            log.warn("Failed to delete {}: {}", usageFile, e.getMessage());
+        }
+        // attachments sidecar
+        Path attFile = attachmentsFile(agentId, sessionId);
+        try {
+            if (Files.deleteIfExists(attFile)) {
+                removed = true;
+                log.info("Deleted attachments file: {}", attFile);
+            }
+        } catch (IOException e) {
+            log.warn("Failed to delete {}: {}", attFile, e.getMessage());
         }
         return removed;
     }
@@ -159,6 +182,11 @@ public class SessionService {
             }
             out.add(msg);
         }
+
+        // ===== Pass 3: 把 usage sidecar 的 LLM 调用统计挂回 ASSISTANT 消息 =====
+        attachUsages(agentId, sessionId, out);
+        // ===== Pass 4: 把 attachments sidecar 挂回 USER 消息 =====
+        attachAttachments(agentId, sessionId, out);
         return out;
     }
 
@@ -259,16 +287,33 @@ public class SessionService {
             log.warn("Failed to read session meta {}: {}", file, e.getMessage());
             return null;
         }
-        String preview = firstUserContent == null ? null : previewOf(firstUserContent);
-        return new SessionInfo(sessionId, messageCount, lastActive, preview);
+        boolean isTask = sessionId.startsWith(TASK_SESSION_PREFIX);
+        String preview = firstUserContent == null ? null : previewOf(firstUserContent, isTask);
+        return new SessionInfo(sessionId, messageCount, lastActive, preview, isTask);
     }
 
-    /** 取首条 USER 消息前 9 个 codePoint 作为侧栏展示标题 */
-    private static String previewOf(String content) {
+    /** 任务会话 id 前缀（与 TaskExecutionService.SESSION_PREFIX 对齐）。 */
+    private static final String TASK_SESSION_PREFIX = "task-";
+
+    /** 任务 prompt 前缀里抽任务名：【定时任务「<name>」自动执行】 */
+    private static final Pattern TASK_NAME_PATTERN = Pattern.compile("^【定时任务「(.+?)」自动执行】");
+
+    /**
+     * 取侧栏展示标题。
+     * 普通会话：前 9 个 codePoint。
+     * 任务会话（isTask=true）：从 prompt 前缀里抽出任务名（如「慢测试2」）；抽不到则 fallback 到普通逻辑。
+     */
+    private static String previewOf(String content, boolean isTask) {
         String display = content
                 .replaceAll("(?is)<(?:think|reasoning)>.*?</(?:think|reasoning)>", "")
                 .trim();
         if (display.isEmpty()) return null;
+        if (isTask) {
+            Matcher m = TASK_NAME_PATTERN.matcher(display);
+            if (m.find()) {
+                return m.group(1);
+            }
+        }
         int[] cps = display.codePoints().toArray();
         int n = Math.min(9, cps.length);
         return new String(cps, 0, n);
@@ -291,5 +336,188 @@ public class SessionService {
     private static String stripExt(String name) {
         int dot = name.lastIndexOf('.');
         return dot < 0 ? name : name.substring(0, dot);
+    }
+
+    // ==================== Usage sidecar ====================
+
+    /** usage 落盘目录：workspaceRoot/<agentId>/usage/<sessionId>.usage.jsonl（每行一条 UsageDto JSON） */
+    private Path usageFile(String agentId, String sessionId) {
+        return registry.getWorkspacePath(agentId).resolve("usage").resolve(sessionId + ".usage.jsonl");
+    }
+
+    /** 校验 sessionId 字符（防路径穿越） */
+    private static boolean isValidSessionId(String sessionId) {
+        if (sessionId == null || sessionId.isBlank()) return false;
+        if (sessionId.contains("..") || sessionId.contains("/") || sessionId.contains("\\")) return false;
+        return true;
+    }
+
+    /**
+     * 追加一条 LLM 调用 usage 记录到 sidecar。
+     * AgentService 在收到 ModelCallEndEvent 时按模型调用顺序写入。
+     */
+    public void appendUsage(String agentId, String sessionId, UsageDto usage) {
+        if (!isValidSessionId(sessionId) || usage == null) return;
+        try {
+            Path dir = registry.getWorkspacePath(agentId).resolve("usage");
+            Files.createDirectories(dir);
+            Path file = dir.resolve(sessionId + ".usage.jsonl");
+            String line = mapper.writeValueAsString(usage) + "\n";
+            Files.writeString(file, line, StandardOpenOption.CREATE, StandardOpenOption.APPEND);
+        } catch (IOException e) {
+            log.warn("Failed to append usage for {}/{}: {}", agentId, sessionId, e.getMessage());
+        }
+    }
+
+    /** 读取某 session 全部 usage 记录（按写入顺序）。文件不存在或为空返回空列表。 */
+    public List<UsageDto> readUsages(String agentId, String sessionId) {
+        if (!isValidSessionId(sessionId)) return Collections.emptyList();
+        Path file = usageFile(agentId, sessionId);
+        if (!Files.isRegularFile(file)) return Collections.emptyList();
+        List<UsageDto> result = new ArrayList<>();
+        try {
+            List<String> lines = Files.readAllLines(file);
+            for (String line : lines) {
+                if (line.isBlank()) continue;
+                try {
+                    result.add(mapper.readValue(line, UsageDto.class));
+                } catch (IOException e) {
+                    // 单行解析失败跳过（保留其他记录）
+                    log.warn("Failed to parse usage line: {}", e.getMessage());
+                }
+            }
+        } catch (IOException e) {
+            log.warn("Failed to read usages {}/{}: {}", agentId, sessionId, e.getMessage());
+        }
+        return result;
+    }
+
+    /**
+     * 把 sidecar 中的 usage 记录按模型调用顺序挂回 ASSISTANT 消息。
+     * 匹配规则（顺序遍历）：
+     * <ul>
+     *   <li>createsEntry=true 的记录依次挂到 ASSISTANT 消息序列（按序 1:1）</li>
+     *   <li>createsEntry=false（纯 tool_use 无文本的调用）的记录挂到上一条已分配的 ASSISTANT 消息
+     *       —— 与现有 tool_use/tool_result 回挂逻辑一致（它们的 parentId 也链回上一条）</li>
+     *   <li>多余 usage（无对应消息）静默丢弃</li>
+     *   <li>无 sidecar 数据 → 不影响历史展示</li>
+     * </ul>
+     */
+    private void attachUsages(String agentId, String sessionId, List<ChatHistoryMessage> out) {
+        List<UsageDto> usages = readUsages(agentId, sessionId);
+        if (usages.isEmpty()) return;
+
+        List<ChatHistoryMessage> assistants = new ArrayList<>();
+        for (ChatHistoryMessage m : out) {
+            if ("ASSISTANT".equalsIgnoreCase(m.getRole())) assistants.add(m);
+        }
+        if (assistants.isEmpty()) return;
+
+        int mi = 0;
+        List<UsageDto> pending = new ArrayList<>();
+        for (UsageDto u : usages) {
+            if (u.isCreatesEntry()) {
+                if (mi < assistants.size()) {
+                    ChatHistoryMessage target = assistants.get(mi++);
+                    List<UsageDto> merged = new ArrayList<>(pending);
+                    pending.clear();
+                    merged.add(u);
+                    target.setUsages(merged);
+                }
+                // 超过 ASSISTANT 消息数的（subagent / 摘要等溢出）静默丢弃
+            } else {
+                if (mi > 0) {
+                    // 挂到上一条已匹配的 ASSISTANT 消息（与 tool_use 的 parentId 回挂逻辑一致）
+                    assistants.get(mi - 1).getUsages().add(u);
+                } else {
+                    pending.add(u);
+                }
+            }
+        }
+        // 若 pending 中残留（极少见：首次调用就是纯 tool_use），归并到第一条 ASSISTANT
+        if (!pending.isEmpty() && !assistants.isEmpty()) {
+            assistants.get(0).getUsages().addAll(pending);
+        }
+    }
+
+    // ==================== Attachments sidecar ====================
+
+    /** attachments 落盘目录：workspaceRoot/<agentId>/usage/<sessionId>.attachments.jsonl（每行一条 JSON {timestamp, attachments[]}） */
+    private Path attachmentsFile(String agentId, String sessionId) {
+        return registry.getWorkspacePath(agentId).resolve("usage").resolve(sessionId + ".attachments.jsonl");
+    }
+
+    /**
+     * 追加一条 USER 消息的附件记录到 sidecar。
+     * 用时间戳与 USER message 的 timestamp 对齐（近似匹配）。
+     */
+    public void appendAttachments(String agentId, String sessionId, long timestamp, List<AttachmentDto> attachments) {
+        if (!isValidSessionId(sessionId) || attachments == null || attachments.isEmpty()) return;
+        try {
+            Path dir = registry.getWorkspacePath(agentId).resolve("usage");
+            Files.createDirectories(dir);
+            Path file = dir.resolve(sessionId + ".attachments.jsonl");
+            // {ts, attachments: [...]} 每行一条
+            com.fasterxml.jackson.databind.node.ObjectNode node = mapper.createObjectNode();
+            node.put("ts", timestamp);
+            node.set("attachments", mapper.valueToTree(attachments));
+            String line = mapper.writeValueAsString(node) + "\n";
+            Files.writeString(file, line, StandardOpenOption.CREATE, StandardOpenOption.APPEND);
+        } catch (IOException e) {
+            log.warn("Failed to append attachments for {}/{}: {}", agentId, sessionId, e.getMessage());
+        }
+    }
+
+    /** 读取某 session 全部附件记录（按写入顺序）。每条为 {ts, attachments[]}。 */
+    private List<JsonNode> readAttachmentEntries(String agentId, String sessionId) {
+        if (!isValidSessionId(sessionId)) return Collections.emptyList();
+        Path file = attachmentsFile(agentId, sessionId);
+        if (!Files.isRegularFile(file)) return Collections.emptyList();
+        List<JsonNode> result = new ArrayList<>();
+        try {
+            List<String> lines = Files.readAllLines(file);
+            for (String line : lines) {
+                if (line.isBlank()) continue;
+                try {
+                    result.add(mapper.readTree(line));
+                } catch (IOException e) {
+                    log.warn("Failed to parse attachments line: {}", e.getMessage());
+                }
+            }
+        } catch (IOException e) {
+            log.warn("Failed to read attachments {}/{}: {}", agentId, sessionId, e.getMessage());
+        }
+        return result;
+    }
+
+    /**
+     * 把 sidecar 中的附件记录挂回 USER 消息。
+     * 匹配规则：按 sidecar 写入顺序与 USER 消息出现顺序 1:1 对齐。
+     */
+    private void attachAttachments(String agentId, String sessionId, List<ChatHistoryMessage> out) {
+        List<JsonNode> entries = readAttachmentEntries(agentId, sessionId);
+        if (entries.isEmpty()) return;
+
+        List<ChatHistoryMessage> users = new ArrayList<>();
+        for (ChatHistoryMessage m : out) {
+            if ("USER".equalsIgnoreCase(m.getRole())) users.add(m);
+        }
+        if (users.isEmpty()) return;
+
+        int ui = 0;
+        for (JsonNode entry : entries) {
+            if (ui >= users.size()) break;
+            JsonNode atts = entry.path("attachments");
+            if (atts.isArray() && atts.size() > 0) {
+                List<AttachmentDto> list = new ArrayList<>();
+                for (JsonNode a : atts) {
+                    try {
+                        list.add(mapper.treeToValue(a, AttachmentDto.class));
+                    } catch (IOException ignored) {}
+                }
+                if (!list.isEmpty()) users.get(ui).setAttachments(list);
+            }
+            ui++;
+        }
     }
 }

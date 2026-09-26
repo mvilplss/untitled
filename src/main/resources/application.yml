@@ -7,9 +7,40 @@ spring:
     multipart:
       max-file-size: 50MB
       max-request-size: 200MB
+  # 定时任务：Quartz JDBC job store + 任务/执行记录同库（见 org.example.task.*）。
+  # 集群路径：把 url 指向共享 MySQL + isClustered=true，代码零改。
+  datasource:
+    # 注意：Connector/J 不接受 utf8mb4 作为 Java 字符集；MySQL 8 默认即 utf8mb4，无需 connectionEncoding 参数。
+    url: jdbc:mysql://localhost:33061/agentscope?useSSL=false&allowPublicKeyRetrieval=true&connectionTimeZone=Asia/Shanghai&useUnicode=true&characterEncoding=UTF-8
+    username: root
+    password: root
+    driver-class-name: com.mysql.cj.jdbc.Driver
+  sql:
+    init:
+      mode: always
+  quartz:
+    job-store-type: jdbc
+    jdbc:
+      # 必须 never：官方 MySQL 脚本带 DROP TABLE，always 会每次重启清空触发器
+      initialize-schema: never
+    properties:
+      org.quartz.jobStore.driverDelegateClass: org.quartz.impl.jdbcjobstore.StdJDBCDelegate
+      org.quartz.jobStore.tablePrefix: QRTZ_
+      org.quartz.jobStore.isClustered: false
+      org.quartz.jobStore.clusterCheckinInterval: 15000
+      org.quartz.threadPool.threadCount: 5
 
 server:
-  port: 8081
+  port: 8080
+
+# MyBatis：定时任务模块使用（org.example.task.mapper.*）
+# map-underscore-to-camel-case 自动 agent_id → agentId；skills 走 SkillsTypeHandler（List<String> ⇄ JSON）
+mybatis:
+  mapper-locations: classpath:mapper/*.xml
+  type-aliases-package: org.example.task
+  type-handlers-package: org.example.task.typehandler
+  configuration:
+    map-underscore-to-camel-case: true
 
 agent:
   openai:
@@ -22,11 +53,52 @@ agent:
     keep-messages: 10
   persistence:
     path: .agentscope/agents.json
+  bailian:
+    # 全局百炼 RAG 默认配置。未在 AgentSpec.bailian 单独覆盖时使用
+    access-key-id: ${BAILIAN_ACCESS_KEY_ID:}
+    access-key-secret: ${BAILIAN_ACCESS_KEY_SECRET:}
+    default-limit: 5
+    default-score-threshold: 0.3
+    default-enable-rerank: false
+    default-enable-rewrite: false
+  sandbox:
+    # 每个 Agent 一个容器的资源约束。
+    # 不设 memory/cpu 时容器继承 Docker Desktop 默认上限，tar extract 大 jsonl 易被 SIGKILL (exit=137)。
+    memory: 4g
+    cpu: 2.0
+    # bridge：容器经 Docker Desktop VM 的 NAT 可访问外网（dws 要调钉钉 OpenAPI）+ 主机服务。
+    # none 是完全隔离但 dws 不可用。fsSpec.network() 现已显式生效（此前配置未接线）。
+    network: bridge
+    # 自定义镜像：Node.js 22 + 真实 dws (dingtalk-workspace-cli@1.0.62) + Python 3.12。
+    # 构建（host 架构，Apple Silicon=linux/arm64，npm 取平台原生 vendor 二进制）：
+    #   cd docker && docker build -t untitled-sandbox:latest -f sandbox.Dockerfile .
+    image: untitled-sandbox:latest
+    # sandbox 文件系统快照根目录（LocalSnapshotSpec），支持 ~ 展开
+    snapshot-root: ~/.agentscope/docker-snapshots
+    # 沙箱空闲超时（分钟）：调用结束后多久没有新调用就关闭容器。
+    # 超时前有新调用则重置计时器。设为 0 表示调用结束立即关闭（旧行为）。
+    idle-timeout-minutes: 5
+    # 聊天附件暂存根目录（后端 host，chat send 时通过 docker cp 传入沙箱）
+    chat-uploads-root: ~/.agentscope/chat-uploads
+
+dws:
+  # 钉钉官方 CLI dws (dingtalk-workspace-cli) 集成配置
+  version: v1.0.62
+  binary-path: ${DWS_BINARY_PATH:}
+  config-root: .agentscope/.dws
+  default-timeout-ms: 30000
+  max-output-bytes: 8388608
 
 logging:
   level:
-    org.example: INFO
-    io.agentscope: INFO
+    org.example: debug
+    io.agentscope: debug
+    # SessionTree 每条 entry 都会触发一次 docker mirror（fire-and-forget），
+    # 单文件大 jsonl 在无内存限制的容器里易被 SIGKILL（exit=137）。
+    # 失败已经被 harness 内部 try/catch 吞掉只产生 warn，因此默认开到 warn 避免日志噪音。
+    io.agentscope.harness.agent.filesystem.sandbox: warn
+    io.agentscope.harness.agent.memory.session: warn
+    io.agentscope.harness.agent.sandbox.impl.docker: info
 
 springdoc:
   swagger-ui:

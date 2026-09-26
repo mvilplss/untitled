@@ -1,9 +1,12 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 import { ElMessage, type FormInstance, type FormRules } from 'element-plus'
-import type { AgentMode, AgentSpec, DingTalkBotConfig } from '@/types/api'
+import type { AgentMode, AgentSpec, BailianRagConfig, DingTalkBotConfig } from '@/types/api'
 import { useSkillsStore } from '@/stores/skills'
-import { getDingTalkBot, upsertDingTalkBot, deleteDingTalkBot } from '@/api/agents'
+import SkillMultiPicker from '@/components/SkillMultiPicker.vue'
+import DingTalkSubForm from '@/components/DingTalkSubForm.vue'
+import BailianRagSubForm from '@/components/BailianRagSubForm.vue'
+import { generateAgentId } from '@/utils/id'
 
 const props = defineProps<{
   modelValue: boolean
@@ -25,9 +28,11 @@ const isEdit = computed(() => props.mode === 'edit')
 const skillsStore = useSkillsStore()
 onMounted(() => skillsStore.fetchList())
 
+const MASK = '***'
+
 const formRef = ref<FormInstance>()
 const form = ref<AgentSpec>({
-  id: '',
+  id: generateAgentId(),
   name: '',
   sysPrompt: '你是一个有帮助的助手。',
   modelName: 'minimax-m3',
@@ -35,12 +40,18 @@ const form = ref<AgentSpec>({
 })
 const submitting = ref(false)
 
+/** 把可选 skills 收敛成 string[] 给 SkillMultiPicker（v-model 要求非可选） */
+const skillsModel = computed<string[]>({
+  get: () => form.value.skills ?? [],
+  set: (v) => { form.value.skills = v },
+})
+
+const dingTalkRef = ref<InstanceType<typeof DingTalkSubForm> | null>(null)
+const bailianRef = ref<InstanceType<typeof BailianRagSubForm> | null>(null)
+
 const rules: FormRules = {
-  id: [
-    { required: true, message: '请输入数字人 ID', trigger: 'blur' },
-    { pattern: /^[a-zA-Z0-9_-]{1,32}$/, message: '1-32 字符，仅含字母数字下划线连字符', trigger: 'blur' },
-  ],
   name: [
+    { required: true, message: '请输入名称', trigger: 'blur' },
     { max: 64, message: '长度不超过 64 字符', trigger: 'blur' },
   ],
   sysPrompt: [
@@ -54,7 +65,7 @@ const rules: FormRules = {
 
 function emptyForm(): AgentSpec {
   return {
-    id: '',
+    id: generateAgentId(),
     name: '',
     sysPrompt: '你是一个有帮助的助手。',
     modelName: 'minimax-m3',
@@ -83,13 +94,15 @@ watch(
     if (open) {
       fillFromInitial(isEdit.value ? init : null)
       if (isEdit.value && init) {
-        loadBot(init.id)
+        dingTalkRef.value?.load(init.id)
+        bailianRef.value?.load(init.id)
       } else {
-        resetBot()
+        dingTalkRef.value?.reset()
+        bailianRef.value?.reset()
       }
     }
   },
-  { immediate: true },
+  { immediate: true, flush: 'post' },
 )
 
 function handleClose() { visible.value = false }
@@ -102,120 +115,64 @@ async function handleSubmit() {
   submitting.value = true
   try {
     const payload: AgentSpec = {
-      id: form.value.id.trim(),
-      name: form.value.name?.trim() || form.value.id.trim(),
+      id: form.value.id,
+      name: form.value.name.trim(),
       sysPrompt: form.value.sysPrompt.trim(),
       modelName: form.value.modelName.trim(),
       skills: form.value.skills && form.value.skills.length > 0 ? [...form.value.skills] : undefined,
     }
     // 新建模式：把机器人配置一起带进 POST；编辑模式主表单不带 dingtalk（机器人区独立保存）
-    if (!isEdit.value && bot.value.enabled) {
-      const secret = botSecretMasked.value ? '' : (bot.value.appSecret?.trim() || '')
-      if (!bot.value.appKey?.trim() || !secret || !bot.value.robotCode?.trim()) {
-        ElMessage.error('启用机器人需填写 AppKey / AppSecret / RobotCode')
-        submitting.value = false
-        return
+    if (!isEdit.value && dingTalkRef.value) {
+      const bot = dingTalkRef.value.getBotSnapshot()
+      if (bot.enabled) {
+        const secret = bot.appSecret === MASK ? '' : (bot.appSecret?.trim() || '')
+        if (!bot.appKey?.trim() || !secret || !bot.robotCode?.trim()) {
+          ElMessage.error('启用机器人需填写 AppKey / AppSecret / RobotCode')
+          submitting.value = false
+          return
+        }
+        const dingtalk: DingTalkBotConfig = {
+          enabled: true,
+          appKey: bot.appKey.trim(),
+          appSecret: secret,
+          robotCode: bot.robotCode.trim(),
+        }
+        payload.dingtalk = dingtalk
       }
-      payload.dingtalk = {
-        enabled: true,
-        appKey: bot.value.appKey.trim(),
-        appSecret: secret,
-        robotCode: bot.value.robotCode.trim(),
+    }
+    // 新建模式：把百炼 RAG 配置一起带进 POST；编辑模式主表单不带 bailian（RAG 区独立保存）
+    if (!isEdit.value && bailianRef.value) {
+      const rag = bailianRef.value.getRagSnapshot()
+      if (rag.enabled) {
+        const secret = rag.accessKeySecret === MASK ? '' : (rag.accessKeySecret?.trim() || '')
+        if (!rag.accessKeyId?.trim() || !secret || !rag.workspaceId?.trim() || !rag.indexId?.trim()) {
+          ElMessage.error('启用百炼 RAG 需填写 AccessKeyId / AccessKeySecret / WorkspaceId / IndexId')
+          submitting.value = false
+          return
+        }
+        const bailian: BailianRagConfig = {
+          enabled: true,
+          accessKeyId: rag.accessKeyId.trim(),
+          accessKeySecret: secret,
+          workspaceId: rag.workspaceId.trim(),
+          indexId: rag.indexId.trim(),
+          endpoint: rag.endpoint?.trim() || undefined,
+          limit: rag.limit,
+          scoreThreshold: rag.scoreThreshold,
+          enableRerank: rag.enableRerank,
+          enableRewrite: rag.enableRewrite,
+        }
+        payload.bailian = bailian
       }
     }
     emit('submit', payload, props.mode)
     ElMessage.success(
-      isEdit.value ? `数字人 '${payload.id}' 已更新` : `数字人 '${payload.id}' 已创建`,
+      isEdit.value ? `数字人 '${payload.name}' 已更新` : `数字人 '${payload.name}' 已创建`,
     )
     handleClose()
   } finally {
     submitting.value = false
   }
-}
-
-// ===== 钉钉机器人配置（独立保存） =====
-const bot = ref<DingTalkBotConfig>({
-  enabled: false,
-  appKey: '',
-  appSecret: '',
-  robotCode: '',
-})
-const showBotSecret = ref(false)
-const botSaving = ref(false)
-const botLoading = ref(false)
-const MASK = '***'
-
-function resetBot() {
-  bot.value = { enabled: false, appKey: '', appSecret: '', robotCode: '' }
-  showBotSecret.value = false
-}
-
-async function loadBot(agentId: string) {
-  botLoading.value = true
-  try {
-    const cfg = await getDingTalkBot(agentId)
-    bot.value = {
-      enabled: cfg.enabled,
-      appKey: cfg.appKey ?? '',
-      appSecret: cfg.appSecret ?? '',
-      robotCode: cfg.robotCode ?? '',
-    }
-  } catch (e) {
-    resetBot()
-  } finally {
-    botLoading.value = false
-  }
-}
-
-const botDirty = computed(() => {
-  if (!bot.value.enabled) return bot.value.appKey || bot.value.robotCode
-  return true
-})
-
-const botSecretMasked = computed(() => bot.value.appSecret === MASK)
-
-async function saveBot() {
-  if (!props.initial) return
-  botSaving.value = true
-  try {
-    const cfg: DingTalkBotConfig = {
-      enabled: bot.value.enabled,
-      appKey: bot.value.appKey?.trim() || undefined,
-      appSecret: botSecretMasked.value ? MASK : (bot.value.appSecret?.trim() || undefined),
-      robotCode: bot.value.robotCode?.trim() || undefined,
-    }
-    const result = await upsertDingTalkBot(props.initial.id, cfg)
-    ElMessage.success(bot.value.enabled ? '钉钉机器人已启动' : '配置已保存')
-    bot.value = {
-      enabled: result.enabled,
-      appKey: result.appKey ?? '',
-      appSecret: result.appSecret ?? '',
-      robotCode: result.robotCode ?? '',
-    }
-  } catch {
-    /* axios interceptor 已经 ElMessage */
-  } finally {
-    botSaving.value = false
-  }
-}
-
-async function disableBot() {
-  if (!props.initial) return
-  try {
-    await deleteDingTalkBot(props.initial.id)
-    ElMessage.success('钉钉机器人已停用')
-    resetBot()
-  } catch {
-    /* */
-  }
-}
-
-function formatBytes(bytes: number): string {
-  if (!bytes) return '0 B'
-  const units = ['B', 'KB', 'MB', 'GB']
-  let v = bytes, i = 0
-  while (v >= 1024 && i < units.length - 1) { v /= 1024; i++ }
-  return `${v.toFixed(i === 0 ? 0 : 1)} ${units[i]}`
 }
 </script>
 
@@ -227,7 +184,7 @@ function formatBytes(bytes: number): string {
           <div>
             <div class="dialog__crumb mono">{{ isEdit ? '编辑' : '新建' }} · 数字人配置</div>
             <h2 class="dialog__title">
-              {{ isEdit ? form.id || '数字人' : '新建数字人' }}
+              {{ isEdit ? (form.name || '未命名') : '新建数字人' }}
             </h2>
           </div>
           <button class="btn-ghost mono" @click="handleClose">关闭 ×</button>
@@ -235,25 +192,24 @@ function formatBytes(bytes: number): string {
 
         <el-form ref="formRef" :model="form" :rules="rules" class="dialog__form">
           <div class="dialog__grid">
-            <div class="field">
-              <label class="field__label mono">数字人 ID</label>
+            <div class="field field--full">
+              <label class="field__label mono">名称 <span class="field__required">*</span></label>
               <el-input
-                v-model="form.id"
-                placeholder="例如：assistant / writer / translator"
-                maxlength="32"
+                v-model="form.name"
+                placeholder="给你的数字人起个名字"
+                maxlength="64"
                 show-word-limit
-                :disabled="isEdit"
               />
-              <div class="field__hint mono">1–32 字符，仅含字母数字下划线连字符</div>
-            </div>
-
-            <div class="field">
-              <label class="field__label mono">显示名称</label>
-              <el-input v-model="form.name" placeholder="选填，留空则与 ID 一致" maxlength="64" />
+              <div class="field__hint mono">
+                ID
+                <span class="field__id-mono">{{ form.id }}</span>
+                <span class="field__hint-sep">·</span>
+                <span>系统自动生成，标识符不可改</span>
+              </div>
             </div>
 
             <div class="field field--full">
-              <label class="field__label mono">系统提示词</label>
+              <label class="field__label mono">系统提示词 <span class="field__required">*</span></label>
               <el-input
                 v-model="form.sysPrompt"
                 type="textarea"
@@ -265,7 +221,7 @@ function formatBytes(bytes: number): string {
             </div>
 
             <div class="field field--full">
-              <label class="field__label mono">模型</label>
+              <label class="field__label mono">模型 <span class="field__required">*</span></label>
               <el-input v-model="form.modelName" placeholder="OpenAI 兼容接口的模型标识" />
             </div>
           </div>
@@ -277,122 +233,23 @@ function formatBytes(bytes: number): string {
                 已选 {{ form.skills?.length ?? 0 }} / {{ skillsStore.list.length }}
               </span>
             </header>
-            <div class="dialog__hint mono">
-              该数字人可调用的技能（从 .agentscope/skills/ 加载）。
-              留空表示对所有技能可见。
-              <span v-if="!skillsStore.list.length" class="dialog__hint-warn">
-                — 暂无可用技能，请前往「技能」页面上传。
-              </span>
-            </div>
-            <el-checkbox-group
-              v-model="form.skills"
-              class="skill-grid"
-              :disabled="!skillsStore.list.length"
-            >
-              <el-checkbox
-                v-for="s in skillsStore.list"
-                :key="s.name"
-                :value="s.name"
-                class="tool-cell"
-              >
-                <div class="tool-cell__label">{{ s.name }}</div>
-                <div class="tool-cell__desc">{{ s.description }}</div>
-                <div class="tool-cell__name mono">
-                  {{ s.resourceCount }} 个资源 · {{ formatBytes(s.sizeBytes) }}
-                </div>
-              </el-checkbox>
-            </el-checkbox-group>
+            <SkillMultiPicker v-model="skillsModel" />
           </section>
 
           <section class="dialog__section">
-            <header class="dialog__section-head">
-              <span class="dialog__section-title mono">// 钉钉机器人</span>
-              <span v-if="isEdit" class="dialog__section-meta mono">
-                <span v-if="botLoading">加载中…</span>
-                <span v-else-if="bot.enabled && botSecretMasked" class="dialog__hint-ok">● 运行中</span>
-                <span v-else-if="bot.enabled" class="dialog__hint-warn">● 配置已保存（待启动）</span>
-                <span v-else class="dialog__hint-mute">○ 未启用</span>
-              </span>
-              <span v-else class="dialog__section-meta mono dialog__hint-mute">
-                {{ bot.enabled ? '● 启用（随创建一并启动）' : '○ 不启用' }}
-              </span>
-            </header>
-            <div class="dialog__hint mono">
-              为该数字人绑定专属钉钉机器人（1:1 绑定）。
-              钉钉用户向机器人发送消息时，会由该数字人回复；变更保存后立即生效。
-              <span v-if="!isEdit">新建时如启用，机器人将与 Agent 同步创建并启动。</span>
-            </div>
+            <DingTalkSubForm
+              ref="dingTalkRef"
+              :agent-id="isEdit ? (initial?.id ?? '') : ''"
+              :is-edit="isEdit"
+            />
+          </section>
 
-            <div class="bot-grid">
-              <div class="field field--full">
-                <label class="field__label mono">启用机器人</label>
-                <el-switch v-model="bot.enabled" />
-              </div>
-
-              <div class="field">
-                <label class="field__label mono">AppKey</label>
-                <el-input
-                  v-model="bot.appKey"
-                  placeholder="钉钉开放平台 → Client ID（原 AppKey）"
-                  :disabled="!bot.enabled"
-                  maxlength="128"
-                />
-              </div>
-
-              <div class="field">
-                <label class="field__label mono">AppSecret</label>
-                <el-input
-                  v-model="bot.appSecret"
-                  :type="showBotSecret ? 'text' : 'password'"
-                  :placeholder="botSecretMasked ? '已保存 · 输入新值以替换' : (isEdit ? '留空则沿用旧值' : '钉钉开放平台 → Client Secret')"
-                  :disabled="!bot.enabled"
-                  maxlength="256"
-                >
-                  <template #append>
-                    <button
-                      class="btn-eye mono"
-                      type="button"
-                      @click="showBotSecret = !showBotSecret"
-                    >
-                      {{ showBotSecret ? '隐藏' : '显示' }}
-                    </button>
-                  </template>
-                </el-input>
-                <div v-if="isEdit && botSecretMasked" class="field__hint mono">
-                  已保存当前密钥；如需修改请直接输入新值，否则提交时沿用旧值
-                </div>
-              </div>
-
-              <div class="field field--full">
-                <label class="field__label mono">RobotCode</label>
-                <el-input
-                  v-model="bot.robotCode"
-                  placeholder="钉钉开放平台 → 机器人与消息接收 → RobotCode"
-                  :disabled="!bot.enabled"
-                  maxlength="128"
-                />
-              </div>
-            </div>
-
-            <footer v-if="isEdit" class="bot-foot">
-              <button
-                v-if="bot.enabled"
-                class="btn-ghost mono"
-                type="button"
-                @click="disableBot"
-              >
-                停用机器人
-              </button>
-              <span class="bot-foot-spacer"></span>
-              <button
-                class="btn-primary"
-                type="button"
-                :disabled="botSaving || !botDirty"
-                @click="saveBot"
-              >
-                {{ botSaving ? '保存中' : (bot.enabled ? '保存' : '启用并启动') }}
-              </button>
-            </footer>
+          <section class="dialog__section">
+            <BailianRagSubForm
+              ref="bailianRef"
+              :agent-id="isEdit ? (initial?.id ?? '') : ''"
+              :is-edit="isEdit"
+            />
           </section>
         </el-form>
 
@@ -413,7 +270,7 @@ function formatBytes(bytes: number): string {
 .dialog-mask {
   position: fixed;
   inset: 0;
-  background: rgba(54, 69, 79, 0.4);
+  background: rgba(24,27,32,.42);
   z-index: var(--z-overlay);
   display: flex;
   align-items: stretch;
@@ -423,33 +280,34 @@ function formatBytes(bytes: number): string {
 .dialog {
   width: min(820px, 100%);
   height: 100%;
-  background: var(--bg-base);
-  border-left: 1px solid var(--border);
+  background: var(--bg);
+  border-left: 1px solid var(--line);
   display: flex;
   flex-direction: column;
+  box-shadow: -8px 0 32px rgba(20,24,31,.08);
 }
 
 .dialog__head {
   padding: 18px 24px;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--line);
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
-  background: var(--bg-surface);
+  background: var(--panel);
 }
 .dialog__crumb {
   font-size: 11px;
-  color: var(--text-mute);
+  color: var(--txt2);
   margin-bottom: 4px;
 }
 .dialog__title {
   margin: 0;
-  font-size: 18px;
-  font-weight: 600;
-  letter-spacing: -0.01em;
-  color: var(--text);
-  font-family: var(--font-mono);
+  font-size: var(--fs-18);
+  font-weight: 650;
+  letter-spacing: 0;
+  color: var(--txt);
+  font-family: var(--font-sans);
 }
 
 .dialog__form {
@@ -459,25 +317,48 @@ function formatBytes(bytes: number): string {
 }
 
 .dialog__grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 18px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
   margin-bottom: 24px;
 }
 .field { display: flex; flex-direction: column; gap: 6px; }
-.field--full { grid-column: 1 / -1; }
+.field--full { width: 100%; }
 .field__label {
   font-size: 11px;
-  color: var(--text-mute);
+  color: var(--txt2);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.field__required {
+  color: var(--red);
+  font-family: var(--font-mono);
+  font-weight: 600;
 }
 .field__hint {
   font-size: 11px;
-  color: var(--text-faint);
+  color: var(--txt3);
   margin-top: 2px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
 }
+.field__id-mono {
+  font-family: var(--font-mono);
+  color: var(--txt2);
+  background: var(--bg);
+  border: 1px solid var(--line-soft);
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 11px;
+  user-select: all;
+}
+.field__hint-sep { color: var(--line); }
 
 .dialog__section {
-  border-top: 1px solid var(--border);
+  border-top: 1px solid var(--line);
   padding-top: 20px;
   margin-top: 24px;
 }
@@ -488,113 +369,24 @@ function formatBytes(bytes: number): string {
   margin-bottom: 6px;
 }
 .dialog__section-title {
-  font-size: 13px;
-  color: var(--text);
-  font-weight: 600;
+  font-size: var(--fs-13);
+  color: var(--txt);
+  font-weight: 650;
 }
 .dialog__section-meta {
   font-size: 11px;
-  color: var(--text-mute);
+  color: var(--txt2);
 }
-.dialog__hint {
-  font-size: 12px;
-  color: var(--text-mute);
-  line-height: 1.55;
-  margin-bottom: 12px;
-}
-.dialog__hint-warn { color: var(--warn); }
-.dialog__hint-ok { color: var(--ok); }
-.dialog__hint-mute { color: var(--text-faint); }
-
-.skill-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  column-gap: 24px;
-  row-gap: 4px;
-  max-height: 280px;
-  overflow-y: auto;
-  padding: 8px;
-  border: 1px solid var(--border);
-  background: var(--bg-surface);
-}
-
-.tool-cell {
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
-  padding: 8px 4px;
-  border-bottom: 1px solid var(--border-soft);
-}
-.tool-cell:last-child { border-bottom: none; }
-.tool-cell :deep(.el-checkbox__label) {
-  display: block;
-  flex: 1;
-  width: auto;
-  white-space: normal;
-  line-height: 1.5;
-  padding-left: 8px;
-}
-.tool-cell__label {
-  display: block;
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--text);
-  line-height: 1.4;
-  margin-bottom: 4px;
-}
-.tool-cell__name {
-  display: block;
-  font-size: 11px;
-  color: var(--text-faint);
-  line-height: 1.5;
-  margin-bottom: 6px;
-  word-break: break-all;
-}
-.tool-cell__desc {
-  display: block;
-  font-size: 12px;
-  color: var(--text-mute);
-  line-height: 1.55;
-}
-
-/* ===== bot section ===== */
-.bot-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  column-gap: 24px;
-  row-gap: 14px;
-  padding: 12px;
-  border: 1px solid var(--border);
-  background: var(--bg-surface);
-}
-.bot-foot {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin-top: 12px;
-}
-.bot-foot-spacer { flex: 1; }
-
-.btn-eye {
-  font-family: var(--font-mono);
-  font-size: 11px;
-  color: var(--text-mute);
-  background: transparent;
-  border: 1px solid var(--border);
-  padding: 4px 10px;
-  cursor: pointer;
-}
-.btn-eye:hover { color: var(--text); border-color: var(--text-mute); }
 
 .dialog__foot {
   display: flex;
   align-items: center;
   gap: 12px;
   padding: 14px 24px;
-  border-top: 1px solid var(--border);
-  background: var(--bg-surface);
+  border-top: 1px solid var(--line);
+  background: var(--panel);
 }
-.dialog__foot-hint { font-size: 11px; color: var(--text-faint); }
+.dialog__foot-hint { font-size: 11px; color: var(--txt3); }
 .dialog__foot-spacer { flex: 1; }
 
 /* buttons (shared locally for scoped override) */
@@ -602,30 +394,32 @@ function formatBytes(bytes: number): string {
   font-family: var(--font-sans);
   font-size: 13px;
   font-weight: 600;
-  color: var(--bg-base);
-  background: var(--signal);
-  border: 1px solid var(--signal);
+  color: #fff;
+  background: var(--primary);
+  border: 1px solid var(--primary);
+  border-radius: var(--radius-sm);
   padding: 7px 16px;
   cursor: pointer;
   transition: background-color 0.1s ease, border-color 0.1s ease;
 }
 .btn-primary:hover:not(:disabled) {
-  background: var(--signal-hover);
-  border-color: var(--signal-hover);
+  background: var(--primary-hover);
+  border-color: var(--primary-hover);
 }
 .btn-primary:disabled { opacity: 0.4; cursor: not-allowed; }
 
 .btn-ghost {
-  font-family: var(--font-mono);
+  font-family: var(--font-sans);
   font-size: 12px;
-  color: var(--text-mute);
-  background: transparent;
-  border: 1px solid var(--border);
+  color: var(--txt2);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
   padding: 6px 12px;
   cursor: pointer;
   transition: color 0.1s ease, border-color 0.1s ease;
 }
-.btn-ghost:hover { color: var(--text); border-color: var(--text-mute); }
+.btn-ghost:hover { color: var(--txt); border-color: var(--txt2); }
 
 .overlay-enter-active, .overlay-leave-active { transition: opacity 0.12s ease; }
 .overlay-enter-active .dialog, .overlay-leave-active .dialog { transition: transform 0.18s ease; }

@@ -47,6 +47,7 @@ public class DingTalkBotConfig {
     public boolean isComplete() {
         return appKey != null && !appKey.isBlank()
                 && appSecret != null && !appSecret.isBlank()
+                && !MASKED.equals(appSecret)
                 && robotCode != null && !robotCode.isBlank();
     }
 

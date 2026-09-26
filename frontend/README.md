@@ -18,7 +18,7 @@
 
 ## 功能
 
-### 1. Agent 管理 (`/agents`)
+### 1. Agent 管理 (`/digital-humans`)
 - 列出全部已注册 Agent（按 ID 升序）
 - 新建 Agent（id / name / sysPrompt / modelName）
 - 删除 Agent（带二次确认）

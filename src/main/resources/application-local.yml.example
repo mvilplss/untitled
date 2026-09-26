@@ -2,3 +2,12 @@ agent:
   openai:
     # 请把下方替换为你的真实 API Key（提交仓库时本文件不要带真实值）
     api-key: sk-cp-REPLACE_ME
+  bailian:
+    # 可选：全局百炼 RAG 默认凭证。未配置时每个 Agent 必须自己填。
+    # access-key-id: LTAIxxxxxxxxxxxx
+    # access-key-secret: xxxxxxxxxxxxxxxxxxxxxxxx
+    # endpoint: https://bailian.aliyuncs.com
+    default-limit: 5
+    default-score-threshold: 0.3
+    default-enable-rerank: false
+    default-enable-rewrite: false

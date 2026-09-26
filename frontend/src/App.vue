@@ -3,39 +3,18 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAgentsStore } from '@/stores/agents'
 import { useSkillsStore } from '@/stores/skills'
+import SideNav from '@/components/SideNav.vue'
 import DesktopSettings from '@/components/DesktopSettings.vue'
 import type { DesktopBackendStatus } from '@/types/electron'
+import { inElectron } from '@/utils/env'
 
 const route = useRoute()
 const router = useRouter()
 const agentsStore = useAgentsStore()
 const skillsStore = useSkillsStore()
 
-const activeMenu = computed(() => route.path)
 const pageTitle = computed(() => (route.meta.title as string) || '')
 
-interface NavItem {
-  index: string
-  label: string
-  key: string
-  count: () => number | null
-}
-
-const nav: NavItem[] = [
-  { index: '/digital-humans', label: '数字人', key: '01', count: () => agentsStore.list.length },
-  { index: '/chat',   label: '对话',   key: '02', count: () => null },
-  { index: '/skills', label: '技能', key: '03', count: () => skillsStore.list.length },
-]
-
-function go(path: string) {
-  router.push(path)
-}
-
-function pad2(n: number): string {
-  return n < 10 ? `0${n}` : `${n}`
-}
-
-const inElectron = typeof window !== 'undefined' && !!window.electronAPI
 const settingsOpen = ref(false)
 const backendStatus = ref<DesktopBackendStatus>({ status: 'idle', error: null })
 let unsubStatus: (() => void) | null = null
@@ -48,10 +27,17 @@ const statusLabel = computed(() => {
     default: return '空闲'
   }
 })
+const statusClass = computed(() => `status-dot--${backendStatus.value.status}`)
 
-const statusClass = computed(() => `app-sidebar__dot--${backendStatus.value.status}`)
+const searchPlaceholder = computed(() => {
+  if (route.path.startsWith('/chat')) return '搜索会话 / 数字人 / 工具（试试「报销」）'
+  if (route.path.startsWith('/skills')) return '搜索技能 / 工具（试试「OCR」）'
+  return '搜索数字人 / 技能 / 工具（试试「报销」）'
+})
 
 function openSettings() { settingsOpen.value = true }
+
+function goSettings() { router.push('/skills') }
 
 onMounted(() => {
   if (inElectron && window.electronAPI) {
@@ -63,300 +49,248 @@ onMounted(() => {
 onBeforeUnmount(() => {
   if (unsubStatus) unsubStatus()
 })
+
+// suppress unused-warning for kept-imports we still want on the store scope
+void agentsStore
+void skillsStore
+void goSettings
 </script>
 
 <template>
-  <div class="app-layout">
-    <aside class="app-sidebar">
-      <div class="app-sidebar__brand">
-        <div class="app-sidebar__brand-mark mono">▮</div>
-        <div class="app-sidebar__brand-text">
-          <div class="app-sidebar__brand-name">数字人平台</div>
-          <div class="app-sidebar__brand-sub mono">控制台 · v1.0</div>
-        </div>
+  <div class="app">
+    <!-- top bar -->
+    <header class="topbar">
+      <div class="topbar__brand">
+        <div class="topbar__mark">DH</div>
+        <span class="topbar__brand-name">数字人平台</span>
+        <span class="topbar__pill">控制台 · v1.0</span>
       </div>
+      <div class="topbar__search">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4">
+          <circle cx="11" cy="11" r="7" />
+          <path d="M20 20l-4-4" />
+        </svg>
+        <input :placeholder="searchPlaceholder" />
+      </div>
+      <div class="topbar__right">
+        <span class="topbar__metric">
+          本月总消耗 <b>¥ 28,641</b>
+        </span>
+        <span class="topbar__sep">|</span>
+        <span class="topbar__user">李敏 · 财务部</span>
+        <div class="topbar__avatar" title="李敏">李</div>
+        <span v-if="inElectron" class="topbar__runtime" :title="`后端 ${statusLabel}`">
+          <span class="runtime-dot" :class="statusClass"></span>
+          {{ statusLabel }}
+        </span>
+        <button v-if="inElectron" class="topbar__settings" title="后端设置" @click="openSettings">⚙</button>
+      </div>
+    </header>
 
-      <div class="app-sidebar__section">
-        <div class="app-sidebar__section-head mono">// 工作区</div>
-        <nav class="app-sidebar__nav">
-          <a
-            v-for="item in nav"
-            :key="item.index"
-            class="app-sidebar__nav-item"
-            :class="{ 'is-active': activeMenu === item.index }"
-            :href="item.index"
-            @click.prevent="go(item.index)"
-          >
-            <span class="app-sidebar__nav-indicator"></span>
-            <span class="app-sidebar__nav-key mono">{{ item.key }}</span>
-            <span class="app-sidebar__nav-label">{{ item.label }}</span>
-            <span
-              v-if="item.count() !== null"
-              class="app-sidebar__nav-count mono"
-            >{{ pad2(item.count() ?? 0) }}</span>
-            <span v-else class="app-sidebar__nav-count app-sidebar__nav-count--placeholder mono">—</span>
-          </a>
-        </nav>
-      </div>
-
-      <div class="app-sidebar__section app-sidebar__section--foot">
-        <div class="app-sidebar__section-head mono">// 运行时</div>
-        <dl class="app-sidebar__status mono">
-          <div class="app-sidebar__status-row">
-            <dt>后端</dt>
-            <dd v-if="inElectron">
-              <span :class="['app-sidebar__dot', statusClass]"></span>
-              {{ statusLabel }}
-            </dd>
-            <dd v-else>:8080 · web</dd>
+    <!-- layout: side nav + main -->
+    <div class="layout">
+      <SideNav />
+      <main class="main">
+        <header class="page-header">
+          <div class="page-header__title">
+            <span class="page-header__crumb">数字人平台 /</span>
+            <h2 class="page-header__h">{{ pageTitle }}</h2>
           </div>
-          <div class="app-sidebar__status-row">
-            <dt>运行环境</dt>
-            <dd>{{ inElectron ? 'electron' : 'jdk25 · vue3' }}</dd>
+          <div class="page-header__extra">
+            <slot name="header-extra" />
           </div>
-          <div class="app-sidebar__status-row">
-            <dt>构建</dt>
-            <dd>
-              <span class="app-sidebar__dot app-sidebar__dot--ok"></span>
-              dev
-            </dd>
-          </div>
-          <div v-if="inElectron" class="app-sidebar__status-row">
-            <dt></dt>
-            <dd>
-              <button class="app-sidebar__settings mono" @click="openSettings" title="设置">
-                ⚙ 设置
-              </button>
-            </dd>
-          </div>
-        </dl>
-      </div>
-    </aside>
-
-    <main class="app-content">
-      <header class="page-header">
-        <div class="page-header__title">
-          <span class="page-header__crumb mono">数字人平台 /</span>
-          <h2 class="page-header__h">{{ pageTitle }}</h2>
+        </header>
+        <div class="page-body">
+          <router-view />
         </div>
-        <div class="page-header__extra">
-          <slot name="header-extra" />
-        </div>
-      </header>
-      <div class="page-body">
-        <router-view />
-      </div>
-    </main>
+      </main>
+    </div>
 
     <DesktopSettings v-model:visible="settingsOpen" />
   </div>
 </template>
 
 <style scoped>
-.app-layout {
+.app {
   display: flex;
+  flex-direction: column;
   height: 100vh;
-  background: var(--bg-base);
-  color: var(--text);
+  overflow: hidden;
 }
 
-/* ---------- sidebar ---------- */
-.app-sidebar {
-  width: 224px;
-  flex-shrink: 0;
-  background: var(--bg-surface);
-  border-right: 1px solid var(--border);
+/* ============== topbar ============== */
+.topbar {
+  height: 56px;
+  flex: 0 0 56px;
+  background: #fff;
+  border-bottom: 1px solid var(--line);
   display: flex;
-  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  padding: 0 20px;
+  z-index: 20;
 }
 
-.app-sidebar__brand {
-  padding: 16px 16px 14px;
+.topbar__brand {
   display: flex;
-  gap: 10px;
-  align-items: flex-start;
-  border-bottom: 1px solid var(--border);
+  align-items: center;
+  gap: 9px;
+  font-weight: 650;
+  font-size: var(--fs-15);
+  letter-spacing: 0.2px;
 }
-.app-sidebar__brand-mark {
-  font-size: 16px;
-  color: var(--signal);
-  line-height: 1.1;
-  padding-top: 1px;
+.topbar__mark {
+  width: 26px;
+  height: 26px;
+  border-radius: 8px;
+  background: linear-gradient(135deg, #6366f1, #8b5cf6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 700;
 }
-.app-sidebar__brand-text { flex: 1; min-width: 0; }
-.app-sidebar__brand-name {
-  font-family: var(--font-sans);
+.topbar__brand-name { color: var(--txt); }
+.topbar__pill {
+  background: var(--primary-soft);
+  color: var(--primary);
+  padding: 3px 9px;
+  border-radius: 20px;
+  font-size: var(--fs-12);
   font-weight: 600;
-  font-size: 13px;
-  color: var(--text);
-  line-height: 1.2;
-  letter-spacing: -0.01em;
-}
-.app-sidebar__brand-sub {
-  font-size: 11px;
-  color: var(--text-mute);
-  margin-top: 3px;
+  margin-left: 4px;
 }
 
-.app-sidebar__section {
-  padding: 14px 0 12px;
-  display: flex;
-  flex-direction: column;
-}
-.app-sidebar__section--foot {
-  margin-top: auto;
-  border-top: 1px solid var(--border);
-  padding-bottom: 14px;
-}
-.app-sidebar__section-head {
-  padding: 0 16px;
-  font-size: 11px;
-  color: var(--text-mute);
-  margin-bottom: 6px;
-}
-
-.app-sidebar__nav {
-  display: flex;
-  flex-direction: column;
-}
-
-.app-sidebar__nav-item {
+.topbar__search {
+  flex: 1;
+  max-width: 420px;
+  margin-left: 14px;
   position: relative;
-  display: grid;
-  grid-template-columns: 3px 22px 1fr auto;
-  align-items: center;
-  gap: 8px;
-  padding: 7px 16px;
-  color: var(--text-mute);
-  text-decoration: none;
-  font-size: 13px;
-  transition: background-color 0.08s ease, color 0.08s ease;
 }
-.app-sidebar__nav-item:hover {
-  color: var(--text);
-  background: var(--bg-elevated);
+.topbar__search input {
+  width: 100%;
+  height: 34px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  padding: 0 12px 0 32px;
+  background: #fafbfc;
+  font-size: var(--fs-13);
+  color: var(--txt);
+  outline: none;
+  font-family: inherit;
 }
-.app-sidebar__nav-indicator {
-  width: 2px;
-  height: 14px;
-  background: transparent;
-  justify-self: center;
+.topbar__search input:focus {
+  border-color: var(--primary);
+  background: #fff;
 }
-.app-sidebar__nav-item.is-active {
-  color: var(--text);
-  background: var(--bg-elevated);
+.topbar__search svg {
+  position: absolute;
+  left: 10px;
+  top: 9px;
+  opacity: 0.45;
 }
-.app-sidebar__nav-item.is-active .app-sidebar__nav-indicator {
-  background: var(--signal);
-}
-.app-sidebar__nav-key {
-  font-size: 11px;
-  color: var(--text-faint);
-}
-.app-sidebar__nav-item.is-active .app-sidebar__nav-key { color: var(--text-mute); }
-.app-sidebar__nav-label { font-weight: 500; }
-.app-sidebar__nav-count {
-  font-size: 11px;
-  color: var(--text-faint);
-}
-.app-sidebar__nav-item.is-active .app-sidebar__nav-count { color: var(--text-mute); }
-.app-sidebar__nav-count--placeholder { color: var(--border); }
 
-/* status box */
-.app-sidebar__status {
-  margin: 0 16px;
-  display: flex;
-  flex-direction: column;
-  font-size: 11px;
-}
-.app-sidebar__status-row {
-  display: flex;
-  justify-content: space-between;
-  padding: 3px 0;
-  border-bottom: 1px dashed var(--border-soft);
-  color: var(--text-mute);
-}
-.app-sidebar__status-row:last-child { border-bottom: none; }
-.app-sidebar__status-row dd {
-  margin: 0;
-  color: var(--text);
+.topbar__right {
+  margin-left: auto;
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 12px;
+  color: var(--txt2);
+  font-size: var(--fs-13);
 }
-.app-sidebar__status-row dt { color: var(--text-mute); }
-
-.app-sidebar__dot {
+.topbar__metric b { color: var(--txt); font-weight: 650; }
+.topbar__sep { color: var(--line); }
+.topbar__user { color: var(--txt2); }
+.topbar__avatar {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  background: linear-gradient(135deg, #f59e0b, #f97316);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.topbar__runtime {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: var(--fs-12);
+  color: var(--txt2);
+  background: var(--bg);
+  border: 1px solid var(--line);
+  padding: 3px 8px;
+  border-radius: 20px;
+}
+.runtime-dot {
   width: 6px;
   height: 6px;
-  display: inline-block;
-  background: var(--text-faint);
+  border-radius: 50%;
+  background: var(--txt3);
 }
-.app-sidebar__dot--ok { background: var(--ok); }
-.app-sidebar__dot--ready { background: var(--ok); }
-.app-sidebar__dot--starting { background: #d6a300; }
-.app-sidebar__dot--error { background: var(--err); }
-.app-sidebar__dot--idle { background: var(--text-faint); }
-
-.app-sidebar__settings {
-  font-family: var(--font-mono);
-  font-size: 11px;
-  color: var(--text-mute);
-  background: transparent;
-  border: 1px solid var(--border);
-  padding: 3px 8px;
+.runtime-dot--ready    { background: var(--green); }
+.runtime-dot--starting { background: #d6a300; }
+.runtime-dot--error    { background: var(--red); }
+.runtime-dot--idle     { background: var(--txt3); }
+.topbar__settings {
+  width: 30px;
+  height: 30px;
+  border: 1px solid var(--line);
+  background: #fff;
+  border-radius: 8px;
   cursor: pointer;
-  transition: color 0.1s ease, border-color 0.1s ease;
+  color: var(--txt2);
+  font-size: 14px;
 }
-.app-sidebar__settings:hover {
-  color: var(--text);
-  border-color: var(--text-mute);
-}
+.topbar__settings:hover { color: var(--txt); border-color: var(--txt2); }
 
-/* ---------- main column ---------- */
-.app-content {
+/* ============== layout ============== */
+.layout {
   flex: 1;
   display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  background: var(--bg-base);
+  min-height: 0;
+}
+.main {
+  flex: 1;
+  overflow-y: auto;
+  padding: 22px 26px 60px;
+  background: var(--bg);
   min-width: 0;
 }
 
+/* ============== page header ============== */
 .page-header {
-  padding: 12px 24px;
-  background: var(--bg-base);
-  border-bottom: 1px solid var(--border);
   display: flex;
   align-items: center;
   justify-content: space-between;
-  min-height: 48px;
+  margin-bottom: 18px;
+  gap: 14px;
 }
 .page-header__title {
   display: flex;
   align-items: baseline;
-  gap: 10px;
+  gap: 8px;
+  min-width: 0;
 }
 .page-header__crumb {
-  font-size: 12px;
-  color: var(--text-mute);
+  font-size: var(--fs-12);
+  color: var(--txt2);
 }
 .page-header__h {
   margin: 0;
-  font-size: 15px;
-  font-weight: 600;
-  color: var(--text);
-  letter-spacing: -0.005em;
+  font-size: var(--fs-19);
+  font-weight: 650;
+  letter-spacing: 0.2px;
+  color: var(--txt);
 }
 .page-header__extra {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
 }
 
-.page-body {
-  flex: 1;
-  padding: 24px;
-  overflow: auto;
-}
+.page-body { min-height: 0; }
 </style>

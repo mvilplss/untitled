@@ -6,6 +6,7 @@ import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
+import org.example.bailian.BailianRagConfig;
 import org.example.bot.DingTalkBotConfig;
 
 import java.util.List;
@@ -22,9 +23,11 @@ public class AgentSpec {
     @Pattern(regexp = "^[a-zA-Z0-9_-]{1,32}$", message = "id 必须匹配 ^[a-zA-Z0-9_-]{1,32}$")
     private String id;
 
-    @Schema(description = "Agent 显示名，可选；缺省时回退为 id",
+    @Schema(description = "Agent 显示名，必填",
             example = "Java专家",
+            requiredMode = Schema.RequiredMode.REQUIRED,
             maxLength = 64)
+    @NotBlank(message = "name 不能为空")
     @Size(max = 64, message = "name 长度不能超过 64")
     private String name;
 
@@ -51,15 +54,24 @@ public class AgentSpec {
     @Schema(description = "可选：钉钉机器人配置。设置后该 Agent 会启动一个专属 DingTalk Channel，1:1 绑定；变更或删除后立即生效，无需重启。")
     private DingTalkBotConfig dingtalk;
 
+    @Schema(description = "可选：阿里云百炼知识库 RAG 配置。启用后会把 retrieve_knowledge 注入 Toolkit；变更或禁用后立即重建 HarnessAgent。accessKeyId/Secret 可省略，走 application.yml 全局默认。")
+    private BailianRagConfig bailian;
+
     public AgentSpec() {}
 
     public AgentSpec(String id, String name, String sysPrompt, String modelName,
                      List<String> tools, List<String> skills) {
-        this(id, name, sysPrompt, modelName, tools, skills, null);
+        this(id, name, sysPrompt, modelName, tools, skills, null, null);
     }
 
     public AgentSpec(String id, String name, String sysPrompt, String modelName,
                      List<String> tools, List<String> skills, DingTalkBotConfig dingtalk) {
+        this(id, name, sysPrompt, modelName, tools, skills, dingtalk, null);
+    }
+
+    public AgentSpec(String id, String name, String sysPrompt, String modelName,
+                     List<String> tools, List<String> skills, DingTalkBotConfig dingtalk,
+                     BailianRagConfig bailian) {
         this.id = id;
         this.name = (name == null || name.isBlank()) ? id : name;
         this.sysPrompt = sysPrompt;
@@ -67,6 +79,7 @@ public class AgentSpec {
         this.tools = (tools == null || tools.isEmpty()) ? null : List.copyOf(tools);
         this.skills = (skills == null || skills.isEmpty()) ? null : List.copyOf(skills);
         this.dingtalk = dingtalk;
+        this.bailian = bailian;
     }
 
     public String getId() { return id; }
@@ -99,4 +112,12 @@ public class AgentSpec {
     @JsonIgnore
     public DingTalkBotConfig getDingtalkRaw() { return dingtalk; }
     public void setDingtalk(DingTalkBotConfig dingtalk) { this.dingtalk = dingtalk; }
+
+    public BailianRagConfig getBailian() {
+        return bailian == null ? null : bailian.masked();
+    }
+    /** 内部使用：返回未掩码原值（含明文 secret）。不要序列化给前端。 */
+    @JsonIgnore
+    public BailianRagConfig getBailianRaw() { return bailian; }
+    public void setBailian(BailianRagConfig bailian) { this.bailian = bailian; }
 }

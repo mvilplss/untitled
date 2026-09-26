@@ -20,7 +20,7 @@ target/
 .project
 .settings
 .springBeans
-.sts4-cache
+.sts4-cache/
 
 ### NetBeans ###
 /nbproject/private/
@@ -46,5 +46,15 @@ src/main/resources/application-local.yml
 
 .agentscope
 
+# dws (dingtalk-workspace-cli) 集成产物
+.agentscope/.dws/
+.agentscope/dws-audit.jsonl
+
+# Desktop sidecar / 资源产物
+desktop/resources/.agentscope/
+desktop/resources/backend.jar
+desktop/resources/app/
+
 .mvn
 .idea
+node_modules
